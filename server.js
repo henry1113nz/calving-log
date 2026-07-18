@@ -5,10 +5,11 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+app.use(express.static('public'));
 
-app.get('/',(req,res) => {
-    res.send('Calving Log server is running')
-});
+// app.get('/',(req,res) => {
+//     res.send('Calving Log server is running')
+// });
 
 app.get('/api/events',(req,res) => {
     const events = db.prepare('SELECT * FROM health_events ORDER BY event_date DESC').all();

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Calving Log</title>
+</head>
+<body>
+  <h1>Calving Log</h1>
+
+  <h2>Add a health event</h2>
+  <form id="event-form">
+    <label>Cow number: <input type="text" id="cow_number" required></label><br>
+    <label>Event type: <input type="text" id="event_type" required></label><br>
+    <label>Date: <input type="date" id="event_date" required></label><br>
+    <label>Notes: <input type="text" id="notes"></label><br>
+    <button type="submit">Add event</button>
+  </form>
+
+  <h2>All events</h2>
+  <ul id="event-list"></ul>
+
+  <script>
+    async function loadEvents() {
+      const response = await fetch('/api/events');
+      const events = await response.json();
+
+      const list = document.getElementById('event-list');
+      list.innerHTML = '';
+
+      events.forEach(event => {
+        const item = document.createElement('li');
+        item.textContent = `${event.event_date} - Cow ${event.cow_number} - ${event.event_type} - ${event.notes || ''}`;
+        list.appendChild(item);
+      });
+    }
+
+    document.getElementById('event-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const newEvent = {
+        cow_number: document.getElementById('cow_number').value,
+        event_type: document.getElementById('event_type').value,
+        event_date: document.getElementById('event_date').value,
+        notes: document.getElementById('notes').value
+      };
+
+      await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEvent)
+      });
+
+      document.getElementById('event-form').reset();
+      loadEvents();
+    });
+
+    loadEvents();
+  </script>
+</body>
+</html>
