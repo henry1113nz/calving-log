@@ -33,6 +33,19 @@ app.post('/api/events',(req,res) => {
 
   res.status(201).json(newEvent);
 });
+
+app.delete('/api/events/:id', (req, res) => {
+  const { id } = req.params;
+
+  const stmt = db.prepare('DELETE FROM health_events WHERE id = ?');
+  const result = stmt.run(id);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Event not found' });
+  }
+
+  res.status(204).send();
+});
  
 app.use((err, req, res, next) => {
   console.error(err);
