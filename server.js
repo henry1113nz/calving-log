@@ -33,6 +33,10 @@ app.post('/api/events',(req,res) => {
   res.status(201).json(newEvent);
 });
  
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Something went wrong on the server' });
+});
 
 app.listen(PORT,()=>{
     console.log(`Server is listening on the http://localhost:${PORT}`)
