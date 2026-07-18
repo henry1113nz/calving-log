@@ -28,10 +28,19 @@
       list.innerHTML = '';
 
       events.forEach(event => {
-        const item = document.createElement('li');
-        item.textContent = `${event.event_date} - Cow ${event.cow_number} - ${event.event_type} - ${event.notes || ''}`;
-        list.appendChild(item);
-      });
+  const item = document.createElement('li');
+  item.textContent = `${event.event_date} - Cow ${event.cow_number} - ${event.event_type} - ${event.notes || ''} `;
+
+  const deleteButton = document.createElement('button');
+  deleteButton.textContent = 'Delete';
+  deleteButton.addEventListener('click', async () => {
+    await fetch(`/api/events/${event.id}`, { method: 'DELETE' });
+    loadEvents();
+  });
+
+  item.appendChild(deleteButton);
+  list.appendChild(item);
+});
     }
 
     document.getElementById('event-form').addEventListener('submit', async (e) => {
