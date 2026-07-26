@@ -8,18 +8,41 @@ const PORT = 3000;
 app.use(express.json());
 app.use(express.static('public'));
 
-// app.get('/',(req,res) => {
-//     res.send('Calving Log server is running')
-// });
+// GET all cows
+app.get('/api/cows', (req, res) => {
+  const cows = db.prepare('SELECT * FROM cows ORDER BY tag_number').all();
+  res.json(cows);
+});
+
+// POST a new cow
+app.post('/api/cows', (req, res) => {
+  const { tag_number, breed, status } = req.body;
+
+  if (!tag_number) {
+    return res.status(400).json({ error: 'tag_number is required' });
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO cows (tag_number, breed, status)
+    VALUES (?, ?, ?)
+  `);
+  const result = stmt.run(tag_number, breed || null, status || 'lactating');
+
+  const newCow = db.prepare('SELECT * FROM cows WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(newCow);
+});
+
 
 app.get('/api/events', (req, res) => {
   const events = db.prepare(`
     SELECT
       health_events.*,
+      cows.tag_number,
       drugs.drug_name,
       drugs.milk_withdrawal_days,
       drugs.calculation_basis
     FROM health_events
+    JOIN cows ON health_events.cow_id = cows.id
     LEFT JOIN drugs ON health_events.drug_id = drugs.id
     ORDER BY event_date DESC
   `).all();
@@ -31,11 +54,17 @@ app.get('/api/events', (req, res) => {
 
   res.json(eventsWithWithdrawal);
 });
-app.post('/api/events', (req, res) => {
-  const { cow_number, event_type, event_date, notes, drug_id, calving_date } = req.body;
 
-  if (!cow_number || !event_type || !event_date) {
-    return res.status(400).json({ error: 'cow_number, event_type and event_date are required' });
+app.post('/api/events', (req, res) => {
+  const { cow_id, event_type, event_date, calving_date, drug_id, notes } = req.body;
+
+  if (!cow_id || !event_type || !event_date) {
+    return res.status(400).json({ error: 'cow_id, event_type and event_date are required' });
+  }
+
+  const cow = db.prepare('SELECT * FROM cows WHERE id = ?').get(cow_id);
+  if (!cow) {
+    return res.status(400).json({ error: 'cow_id does not match any known cow' });
   }
 
   if (drug_id) {
@@ -46,13 +75,12 @@ app.post('/api/events', (req, res) => {
   }
 
   const stmt = db.prepare(`
-    INSERT INTO health_events (cow_number, event_type, event_date, notes, drug_id, calving_date)
+    INSERT INTO health_events (cow_id, event_type, event_date, calving_date, drug_id, notes)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
-  const result = stmt.run(cow_number, event_type, event_date, notes || null, drug_id || null, calving_date || null);
+  const result = stmt.run(cow_id, event_type, event_date, calving_date || null, drug_id || null, notes || null);
 
   const newEvent = db.prepare('SELECT * FROM health_events WHERE id = ?').get(result.lastInsertRowid);
-
   res.status(201).json(newEvent);
 });
 
