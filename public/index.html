@@ -7,12 +7,58 @@
 <body>
   <h1>Calving Log</h1>
 
+  <h2>Add a new cow</h2>
+  <form id="cow-form">
+    <label>Tag number: <input type="text" id="tag_number" required></label><br>
+    <label>Breed: <input type="text" id="breed"></label><br>
+    <label>Birth date: <input type="date" id="birth_date"></label><br>
+    <label>Lactation number: <input type="number" id="lactation_number" min="0"></label><br>
+    <label>Status:
+      <select id="status">
+        <option value="lactating">lactating</option>
+        <option value="dry">dry</option>
+        <option value="culled">culled</option>
+      </select>
+    </label><br>
+    <button type="submit">Add cow</button>
+  </form>
+
   <h2>Add a health event</h2>
   <form id="event-form">
-    <label>Cow number: <input type="text" id="cow_number" required></label><br>
-    <label>Event type: <input type="text" id="event_type" required></label><br>
-    <label>Date: <input type="date" id="event_date" required></label><br>
+    <label>Cow:
+      <select id="cow_id" required></select>
+    </label><br>
+
+    <label>Event type:
+      <select id="event_type" required>
+        <option value="calving">calving</option>
+        <option value="treatment">treatment</option>
+        <option value="dry_off">dry_off</option>
+        <option value="calcium">calcium</option>
+        <option value="other">other</option>
+      </select>
+    </label><br>
+
+    <label>Event date: <input type="date" id="event_date" required></label><br>
+
+    <label>Calving date (only needed for dry-off drugs that count from calving):
+      <input type="date" id="calving_date">
+    </label><br>
+
+    <label>Drug (leave blank if none):
+      <select id="drug_id">
+        <option value="">-- none --</option>
+      </select>
+    </label><br>
+
+    <label>Recorded by:
+      <select id="created_by">
+        <option value="">-- unspecified --</option>
+      </select>
+    </label><br>
+
     <label>Notes: <input type="text" id="notes"></label><br>
+
     <button type="submit">Add event</button>
   </form>
 
@@ -20,6 +66,45 @@
   <ul id="event-list"></ul>
 
   <script>
+    async function loadCows() {
+      const response = await fetch('/api/cows');
+      const cows = await response.json();
+
+      const select = document.getElementById('cow_id');
+      cows.forEach(cow => {
+        const option = document.createElement('option');
+        option.value = cow.id;
+        option.textContent = `Cow ${cow.tag_number}`;
+        select.appendChild(option);
+      });
+    }
+
+    async function loadDrugs() {
+      const response = await fetch('/api/drugs');
+      const drugs = await response.json();
+
+      const select = document.getElementById('drug_id');
+      drugs.forEach(drug => {
+        const option = document.createElement('option');
+        option.value = drug.id;
+        option.textContent = drug.drug_name;
+        select.appendChild(option);
+      });
+    }
+
+    async function loadUsers() {
+      const response = await fetch('/api/users');
+      const users = await response.json();
+
+      const select = document.getElementById('created_by');
+      users.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.id;
+        option.textContent = user.name;
+        select.appendChild(option);
+      });
+    }
+
     async function loadEvents() {
       const response = await fetch('/api/events');
       const events = await response.json();
@@ -28,41 +113,88 @@
       list.innerHTML = '';
 
       events.forEach(event => {
-  const item = document.createElement('li');
-  item.textContent = `${event.event_date} - Cow ${event.cow_number} - ${event.event_type} - ${event.notes || ''} `;
+        const item = document.createElement('li');
 
-  const deleteButton = document.createElement('button');
-  deleteButton.textContent = 'Delete';
-  deleteButton.addEventListener('click', async () => {
-    await fetch(`/api/events/${event.id}`, { method: 'DELETE' });
-    loadEvents();
-  });
+        const withdrawalText = event.withdrawal_end_date
+          ? ` (milk withdrawal until ${event.withdrawal_end_date})`
+          : '';
 
-  item.appendChild(deleteButton);
-  list.appendChild(item);
-});
+        item.textContent = `${event.event_date} - Cow ${event.tag_number} - ${event.event_type}` +
+          `${event.drug_name ? ' - ' + event.drug_name : ''}${withdrawalText}` +
+          `${event.notes ? ' - ' + event.notes : ''} `;
+
+        const deleteButton = document.createElement('button');
+        deleteButton.textContent = 'Delete';
+        deleteButton.addEventListener('click', async () => {
+          await fetch(`/api/events/${event.id}`, { method: 'DELETE' });
+          loadEvents();
+        });
+
+        item.appendChild(deleteButton);
+        list.appendChild(item);
+      });
     }
+
+    document.getElementById('cow-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const newCow = {
+        tag_number: document.getElementById('tag_number').value,
+        breed: document.getElementById('breed').value,
+        birth_date: document.getElementById('birth_date').value || null,
+        lactation_number: document.getElementById('lactation_number').value || null,
+        status: document.getElementById('status').value
+      };
+
+      const response = await fetch('/api/cows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCow)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.error || 'Failed to add cow');
+        return;
+      }
+
+      document.getElementById('cow-form').reset();
+      document.getElementById('cow_id').innerHTML = '';
+      loadCows();
+    });
 
     document.getElementById('event-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const newEvent = {
-        cow_number: document.getElementById('cow_number').value,
+        cow_id: Number(document.getElementById('cow_id').value),
         event_type: document.getElementById('event_type').value,
         event_date: document.getElementById('event_date').value,
+        calving_date: document.getElementById('calving_date').value || null,
+        drug_id: document.getElementById('drug_id').value || null,
+        created_by: document.getElementById('created_by').value || null,
         notes: document.getElementById('notes').value
       };
 
-      await fetch('/api/events', {
+      const response = await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEvent)
       });
 
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.error || 'Failed to add event');
+        return;
+      }
+
       document.getElementById('event-form').reset();
       loadEvents();
     });
 
+    loadCows();
+    loadDrugs();
+    loadUsers();
     loadEvents();
   </script>
 </body>

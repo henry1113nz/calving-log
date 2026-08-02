@@ -140,6 +140,110 @@ app.delete('/api/events/:id', (req, res) => {
   res.status(204).send();
 });
 
+// ---------- users ----------
+
+app.get('/api/users', (req, res) => {
+  const users = db.prepare('SELECT * FROM users ORDER BY name').all();
+  res.json(users);
+});
+
+app.post('/api/users', (req, res) => {
+  const { name, role } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+
+  const stmt = db.prepare('INSERT INTO users (name, role) VALUES (?, ?)');
+  const result = stmt.run(name, role || 'milker');
+
+  const newUser = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(newUser);
+});
+
+// ---------- scc records ----------
+
+app.get('/api/scc', (req, res) => {
+  const records = db.prepare(`
+    SELECT scc_records.*, cows.tag_number
+    FROM scc_records
+    JOIN cows ON scc_records.cow_id = cows.id
+    ORDER BY scc_records.test_date DESC
+  `).all();
+  res.json(records);
+});
+
+app.post('/api/scc', (req, res) => {
+  const { cow_id, test_date, scc_value, source } = req.body;
+
+  if (!cow_id || !test_date || scc_value == null) {
+    return res.status(400).json({ error: 'cow_id, test_date and scc_value are required' });
+  }
+
+  const cow = db.prepare('SELECT * FROM cows WHERE id = ?').get(cow_id);
+  if (!cow) {
+    return res.status(400).json({ error: 'cow_id does not match any known cow' });
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO scc_records (cow_id, test_date, scc_value, source)
+    VALUES (?, ?, ?, ?)
+  `);
+  const result = stmt.run(cow_id, test_date, scc_value, source || 'herd_test');
+
+  const newRecord = db.prepare('SELECT * FROM scc_records WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(newRecord);
+});
+
+// ---------- dry off decisions ----------
+
+app.get('/api/decisions', (req, res) => {
+  const decisions = db.prepare(`
+    SELECT
+      dry_off_decisions.*,
+      cows.tag_number,
+      scc_records.scc_value AS supporting_scc_value,
+      scc_records.test_date AS supporting_scc_date,
+      users.name AS decided_by_name
+    FROM dry_off_decisions
+    JOIN cows ON dry_off_decisions.cow_id = cows.id
+    LEFT JOIN scc_records ON dry_off_decisions.supporting_scc_id = scc_records.id
+    LEFT JOIN users ON dry_off_decisions.decided_by = users.id
+    ORDER BY dry_off_decisions.decided_at DESC
+  `).all();
+  res.json(decisions);
+});
+
+app.post('/api/decisions', (req, res) => {
+  const { cow_id, season, decision, justification, supporting_scc_id, decided_by } = req.body;
+
+  if (!cow_id || !season || !decision) {
+    return res.status(400).json({ error: 'cow_id, season and decision are required' });
+  }
+
+  const cow = db.prepare('SELECT * FROM cows WHERE id = ?').get(cow_id);
+  if (!cow) {
+    return res.status(400).json({ error: 'cow_id does not match any known cow' });
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO dry_off_decisions
+      (cow_id, season, decision, justification, supporting_scc_id, decided_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const result = stmt.run(
+    cow_id,
+    season,
+    decision,
+    justification || null,
+    supporting_scc_id || null,
+    decided_by || null
+  );
+
+  const newDecision = db.prepare('SELECT * FROM dry_off_decisions WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(newDecision);
+});
+
 // ---------- 全局错误处理 ----------
 
 app.use((err, req, res, next) => {
