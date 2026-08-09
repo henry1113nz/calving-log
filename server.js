@@ -140,6 +140,36 @@ app.delete('/api/events/:id', (req, res) => {
   res.status(204).send();
 });
 
+// ---------- vat exclusions (today's "don't milk these into the vat" list) ----------
+
+app.get('/api/vat-exclusions', (req, res) => {
+  const today = new Date().toISOString().split('T')[0];
+
+  const exclusions = db.prepare(`
+    SELECT
+      health_events.id,
+      cows.tag_number,
+      health_events.event_type,
+      health_events.event_date,
+      drugs.drug_name,
+      health_events.withdrawal_end_date
+    FROM health_events
+    JOIN cows ON health_events.cow_id = cows.id
+    LEFT JOIN drugs ON health_events.drug_id = drugs.id
+    WHERE health_events.deleted_at IS NULL
+      AND health_events.withdrawal_end_date IS NOT NULL
+      AND health_events.withdrawal_end_date >= ?
+    ORDER BY health_events.withdrawal_end_date ASC
+  `).all(today);
+
+  const withDaysRemaining = exclusions.map(row => ({
+    ...row,
+    days_remaining: Math.ceil((new Date(row.withdrawal_end_date) - new Date(today)) / (1000 * 60 * 60 * 24))
+  }));
+
+  res.json(withDaysRemaining);
+});
+
 // ---------- users ----------
 
 app.get('/api/users', (req, res) => {
