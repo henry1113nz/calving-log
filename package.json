@@ -4,7 +4,9 @@
   "description": "A web application to help small dairy farms manage cow health events during the calving season.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "test": "node test-api.js",
+    "verify-db": "node verify-db.js"
   },
   "keywords": [],
   "author": "",
