@@ -1,12 +1,22 @@
 const express = require('express');
 const db = require('./db');
 const { calculateWithdrawalEndDate } = require('./withdrawalCalculator');
+const { recommendDryOffTreatment } = require('./dryOffAdvisor');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static('public'));
+
+// 外键最终由数据库强制,但那会抛异常变成 500。引用了不存在的记录属于请求
+// 有问题而不是服务器有问题,所以在这里先查一次,好返回 400 和一句人话。
+function findOrNull(table, id) {
+  if (id === undefined || id === null || id === '') {
+    return null;
+  }
+  return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+}
 
 // ---------- cows ----------
 
@@ -38,6 +48,48 @@ app.post('/api/cows', (req, res) => {
   res.status(201).json(newCow);
 });
 
+// 更新牛只信息。只覆盖请求里明确给出的字段,没给的保持原值,这样前端可以
+// 只提交改动的部分而不必回传整条记录。
+app.put('/api/cows/:id', (req, res) => {
+  const existing = findOrNull('cows', req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Cow not found' });
+  }
+
+  const updated = {
+    tag_number: req.body.tag_number ?? existing.tag_number,
+    breed: req.body.breed ?? existing.breed,
+    birth_date: req.body.birth_date ?? existing.birth_date,
+    lactation_number: req.body.lactation_number ?? existing.lactation_number,
+    status: req.body.status ?? existing.status
+  };
+
+  if (!updated.tag_number) {
+    return res.status(400).json({ error: 'tag_number cannot be empty' });
+  }
+
+  const clash = db.prepare('SELECT id FROM cows WHERE tag_number = ? AND id != ?')
+    .get(updated.tag_number, req.params.id);
+  if (clash) {
+    return res.status(400).json({ error: `tag_number ${updated.tag_number} is already used by another cow` });
+  }
+
+  db.prepare(`
+    UPDATE cows
+    SET tag_number = ?, breed = ?, birth_date = ?, lactation_number = ?, status = ?
+    WHERE id = ?
+  `).run(
+    updated.tag_number,
+    updated.breed,
+    updated.birth_date,
+    updated.lactation_number,
+    updated.status,
+    req.params.id
+  );
+
+  res.json(db.prepare('SELECT * FROM cows WHERE id = ?').get(req.params.id));
+});
+
 // ---------- drugs ----------
 
 app.get('/api/drugs', (req, res) => {
@@ -67,7 +119,7 @@ app.get('/api/events', (req, res) => {
 });
 
 app.post('/api/events', (req, res) => {
-  const { cow_id, event_type, event_date, calving_date, drug_id, notes, created_by } = req.body;
+  const { cow_id, event_type, event_date, calving_date, drug_id, notes, created_by, diagnosis } = req.body;
 
   if (!cow_id || !event_type || !event_date) {
     return res.status(400).json({ error: 'cow_id, event_type and event_date are required' });
@@ -84,6 +136,10 @@ app.post('/api/events', (req, res) => {
     if (!drug) {
       return res.status(400).json({ error: 'drug_id does not match any known drug' });
     }
+  }
+
+  if (created_by && !findOrNull('users', created_by)) {
+    return res.status(400).json({ error: 'created_by does not match any known user' });
   }
 
   // 计算停药期,并把结果作为快照存下来
@@ -103,8 +159,8 @@ app.post('/api/events', (req, res) => {
   const stmt = db.prepare(`
     INSERT INTO health_events
       (cow_id, event_type, event_date, calving_date, drug_id,
-       withdrawal_days_applied, withdrawal_end_date, notes, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       withdrawal_days_applied, withdrawal_end_date, notes, created_by, diagnosis)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     cow_id,
@@ -115,11 +171,90 @@ app.post('/api/events', (req, res) => {
     withdrawalDays,
     withdrawalEndDate,
     notes || null,
-    created_by || null
+    created_by || null,
+    diagnosis || null
   );
 
   const newEvent = db.prepare('SELECT * FROM health_events WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(newEvent);
+});
+
+// 更正已有事件。改了药或改了日期,停药期快照必须跟着重算——留着旧的解除日
+// 比没有解除日更危险,因为它看起来是可信的。
+//
+// 重算用的是药物表当前的天数,而不是原记录当时的天数:这是一次更正,意思是
+// "本来就该是这样",不是在回放历史。真正需要冻结历史的是没被更正过的记录,
+// 那些记录的快照本来就不会被动。
+app.put('/api/events/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM health_events WHERE id = ?').get(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Event not found' });
+  }
+  if (existing.deleted_at) {
+    return res.status(404).json({ error: 'Event has been deleted and cannot be updated' });
+  }
+
+  const updated = {
+    cow_id: req.body.cow_id ?? existing.cow_id,
+    event_type: req.body.event_type ?? existing.event_type,
+    event_date: req.body.event_date ?? existing.event_date,
+    calving_date: req.body.calving_date ?? existing.calving_date,
+    drug_id: req.body.drug_id ?? existing.drug_id,
+    notes: req.body.notes ?? existing.notes,
+    created_by: req.body.created_by ?? existing.created_by,
+    diagnosis: req.body.diagnosis ?? existing.diagnosis
+  };
+
+  if (!findOrNull('cows', updated.cow_id)) {
+    return res.status(400).json({ error: 'cow_id does not match any known cow' });
+  }
+
+  let drug = null;
+  if (updated.drug_id) {
+    drug = findOrNull('drugs', updated.drug_id);
+    if (!drug) {
+      return res.status(400).json({ error: 'drug_id does not match any known drug' });
+    }
+  }
+
+  if (updated.created_by && !findOrNull('users', updated.created_by)) {
+    return res.status(400).json({ error: 'created_by does not match any known user' });
+  }
+
+  let withdrawalDays = null;
+  let withdrawalEndDate = null;
+
+  if (drug) {
+    withdrawalDays = drug.milk_withdrawal_days;
+    withdrawalEndDate = calculateWithdrawalEndDate({
+      milk_withdrawal_days: drug.milk_withdrawal_days,
+      calculation_basis: drug.calculation_basis,
+      event_date: updated.event_date,
+      calving_date: updated.calving_date
+    });
+  }
+
+  db.prepare(`
+    UPDATE health_events
+    SET cow_id = ?, event_type = ?, event_date = ?, calving_date = ?, drug_id = ?,
+        withdrawal_days_applied = ?, withdrawal_end_date = ?, notes = ?, created_by = ?,
+        diagnosis = ?
+    WHERE id = ?
+  `).run(
+    updated.cow_id,
+    updated.event_type,
+    updated.event_date,
+    updated.calving_date,
+    updated.drug_id,
+    withdrawalDays,
+    withdrawalEndDate,
+    updated.notes,
+    updated.created_by,
+    updated.diagnosis,
+    req.params.id
+  );
+
+  res.json(db.prepare('SELECT * FROM health_events WHERE id = ?').get(req.params.id));
 });
 
 // 软删除:只标记 deleted_at,不真正移除记录
@@ -225,6 +360,56 @@ app.post('/api/scc', (req, res) => {
   res.status(201).json(newRecord);
 });
 
+// ---------- dry off recommendation ----------
+
+// 新西兰的产季跨年,'2026-27' 指 2026 年 6 月 1 日到 2027 年 5 月 31 日。
+// 判定要看的是"本泌乳期"的数据,不是这头牛一辈子的数据,所以要把范围框出来。
+function seasonDateRange(season) {
+  const startYear = Number(season.slice(0, 4));
+  return { start: `${startYear}-06-01`, end: `${startYear + 1}-05-31` };
+}
+
+app.get('/api/cows/:id/dry-off-recommendation', (req, res) => {
+  const cow = findOrNull('cows', req.params.id);
+  if (!cow) {
+    return res.status(404).json({ error: 'Cow not found' });
+  }
+
+  const season = req.query.season;
+  if (season && !/^\d{4}-\d{2}$/.test(season)) {
+    return res.status(400).json({ error: "season must look like '2026-27'" });
+  }
+  const range = season ? seasonDateRange(season) : null;
+
+  const sccRecords = range
+    ? db.prepare(`SELECT test_date, scc_value, source FROM scc_records
+                  WHERE cow_id = ? AND test_date BETWEEN ? AND ?
+                  ORDER BY test_date`).all(cow.id, range.start, range.end)
+    : db.prepare(`SELECT test_date, scc_value, source FROM scc_records
+                  WHERE cow_id = ? ORDER BY test_date`).all(cow.id);
+
+  const mastitisEvents = range
+    ? db.prepare(`SELECT event_date, notes FROM health_events
+                  WHERE cow_id = ? AND diagnosis = 'clinical_mastitis'
+                    AND deleted_at IS NULL AND event_date BETWEEN ? AND ?
+                  ORDER BY event_date`).all(cow.id, range.start, range.end)
+    : db.prepare(`SELECT event_date, notes FROM health_events
+                  WHERE cow_id = ? AND diagnosis = 'clinical_mastitis'
+                    AND deleted_at IS NULL ORDER BY event_date`).all(cow.id);
+
+  const advice = recommendDryOffTreatment({
+    lactation_number: cow.lactation_number,
+    scc_records: sccRecords,
+    mastitis_events: mastitisEvents
+  });
+
+  res.json({
+    cow: { id: cow.id, tag_number: cow.tag_number, lactation_number: cow.lactation_number },
+    season: season || 'all records',
+    ...advice
+  });
+});
+
 // ---------- dry off decisions ----------
 
 app.get('/api/decisions', (req, res) => {
@@ -254,6 +439,23 @@ app.post('/api/decisions', (req, res) => {
   const cow = db.prepare('SELECT * FROM cows WHERE id = ?').get(cow_id);
   if (!cow) {
     return res.status(400).json({ error: 'cow_id does not match any known cow' });
+  }
+
+  if (supporting_scc_id && !findOrNull('scc_records', supporting_scc_id)) {
+    return res.status(400).json({ error: 'supporting_scc_id does not match any known SCC record' });
+  }
+
+  if (decided_by && !findOrNull('users', decided_by)) {
+    return res.status(400).json({ error: 'decided_by does not match any known user' });
+  }
+
+  const alreadyDecided = db.prepare(
+    'SELECT id FROM dry_off_decisions WHERE cow_id = ? AND season = ?'
+  ).get(cow_id, season);
+  if (alreadyDecided) {
+    return res.status(400).json({
+      error: `Cow ${cow.tag_number} already has a dry-off decision recorded for season ${season}`
+    });
   }
 
   const stmt = db.prepare(`
