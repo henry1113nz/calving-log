@@ -19,14 +19,45 @@ function seed(db) {
         ('Farm Vet', 'vet')
     `);
 
+    // verified_on 为空 = 未经核实。除 Cepravin 外,以下数值都是开发初期的占位值,
+    // 单位一律按 'days' 迁移过来,但真实标签未必用天来表达。必须逐个对照 ACVM
+    // 注册库与厂商标签核实后,连同 label_wording / source_reference / verified_on
+    // 一起更新。核实之前,系统会把这些药标记为未核实。
+    //
+    // Cepravin 的数据来自 MSD 官方产品页的标签原文,已按标签的真实单位(挤奶次数)
+    // 和最小干奶期录入,但仍留 verified_on 为空,等对照 ACVM 注册库确认后再签署。
+    //
+    // Penethaject 标记为剂量依赖:VCNZ 2023 年通告指出 procaine penicillin 类
+    // 产品的标签剂量普遍偏低已被要求上调,而剂量提高则停药期必须相应延长。
+    // 这类药不自动计算停药期,强制录入人按处方填写。
     db.exec(`
-      INSERT INTO drugs (drug_name, active_ingredient, milk_withdrawal_days, meat_withdrawal_days, calculation_basis) VALUES
-        ('Orbenin L.A.', 'Cloxacillin', 4, 7, 'treatment_date'),
-        ('Mastalone', 'Oxytetracycline', 4, 7, 'treatment_date'),
-        ('Penethaject', 'Procaine penicillin', 3, 10, 'treatment_date'),
-        ('Cepravin Dry Cow', 'Cephalonium', 4, 28, 'calving_date'),
-        ('Bovaclox DC Xtra', 'Cloxacillin / Ampicillin', 7, 28, 'calving_date'),
-        ('Teatseal', 'Bismuth subnitrate', 0, 0, 'treatment_date')
+      INSERT INTO drugs
+        (drug_name, active_ingredient, milk_withdrawal_value, milk_withdrawal_unit,
+         meat_withdrawal_days, calculation_basis, minimum_dry_period_days,
+         whp_depends_on_dose, label_wording, source_reference, verified_on)
+      VALUES
+        ('Orbenin L.A.', 'Cloxacillin', 4, 'days', 7, 'treatment_date',
+         NULL, 0, NULL, NULL, NULL),
+
+        ('Mastalone', 'Oxytetracycline', 4, 'days', 7, 'treatment_date',
+         NULL, 0, NULL, NULL, NULL),
+
+        ('Penethaject', 'Procaine penicillin', 3, 'days', 10, 'treatment_date',
+         NULL, 1, NULL,
+         'Dose-dependent: see VCNZ 2023 notice on penicillin withholding periods and the MPI penicillin product table',
+         NULL),
+
+        ('Cepravin Dry Cow', 'Cephalonium', 8, 'milkings', 28, 'calving_date',
+         49, 0,
+         'Treatment to be at least 49 days before calving. Milk from the first 8 milkings after calving must be discarded',
+         'https://www.msd-animal-health.co.nz/products/cepravin-dry-cow/',
+         NULL),
+
+        ('Bovaclox DC Xtra', 'Cloxacillin / Ampicillin', 7, 'days', 28, 'calving_date',
+         NULL, 0, NULL, NULL, NULL),
+
+        ('Teatseal', 'Bismuth subnitrate', 0, 'days', 0, 'treatment_date',
+         NULL, 0, NULL, NULL, NULL)
     `);
 
     db.exec(`
@@ -47,21 +78,28 @@ function seed(db) {
 
     db.exec(`
       INSERT INTO health_events
-        (cow_id, event_type, event_date, calving_date, drug_id, withdrawal_days_applied, withdrawal_end_date, notes, created_by)
+        (cow_id, event_type, event_date, calving_date, calving_date_source, drug_id, diagnosis,
+         withdrawal_days_applied, withdrawal_end_date, withdrawal_status, notes, created_by)
       VALUES
-        ((SELECT id FROM cows WHERE tag_number='212'), 'treatment', '2026-07-18', NULL,
-         (SELECT id FROM drugs WHERE drug_name='Orbenin L.A.'), 4, '2026-07-22',
+        ((SELECT id FROM cows WHERE tag_number='212'), 'treatment', '2026-07-18', NULL, NULL,
+         (SELECT id FROM drugs WHERE drug_name='Orbenin L.A.'), 'clinical_mastitis',
+         4, '2026-07-22', 'calculated',
          'Clinical mastitis, left front quarter', (SELECT id FROM users WHERE name='Farm Owner')),
 
-        ((SELECT id FROM cows WHERE tag_number='105'), 'calving', '2026-07-10', NULL,
-         NULL, NULL, NULL, 'Normal calving', (SELECT id FROM users WHERE name='Relief Milker')),
+        ((SELECT id FROM cows WHERE tag_number='105'), 'calving', '2026-07-10', '2026-07-10', 'actual',
+         NULL, NULL, NULL, NULL, 'not_applicable',
+         'Normal calving', (SELECT id FROM users WHERE name='Relief Milker')),
 
-        ((SELECT id FROM cows WHERE tag_number='308'), 'dry_off', '2026-07-05', '2026-09-15',
-         (SELECT id FROM drugs WHERE drug_name='Cepravin Dry Cow'), 4, '2026-09-19',
+        -- 干奶用药时产犊日期只是预测值,标记为 predicted。牛真正产犊时,记录产犊
+        -- 事件会把这条的解除日按实际日期重算。
+        ((SELECT id FROM cows WHERE tag_number='308'), 'dry_off', '2026-07-05', '2026-09-15', 'predicted',
+         (SELECT id FROM drugs WHERE drug_name='Cepravin Dry Cow'), NULL,
+         4, '2026-09-19', 'calculated',
          'Dry cow therapy at drying off', (SELECT id FROM users WHERE name='Farm Vet')),
 
-        ((SELECT id FROM cows WHERE tag_number='417'), 'calcium', '2026-07-22', NULL,
-         NULL, NULL, NULL, 'Preventive calcium after calving', (SELECT id FROM users WHERE name='Farm Owner'))
+        ((SELECT id FROM cows WHERE tag_number='417'), 'calcium', '2026-07-22', NULL, NULL,
+         NULL, NULL, NULL, NULL, 'not_applicable',
+         'Preventive calcium after calving', (SELECT id FROM users WHERE name='Farm Owner'))
     `);
 
     db.exec(`

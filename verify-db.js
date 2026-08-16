@@ -24,9 +24,22 @@ const dim = s => `\x1b[90m${s}\x1b[0m`;
 const bold = s => `\x1b[1m${s}\x1b[0m`;
 
 let failures = 0;
+let warnings = 0;
 
 function heading(text) {
   console.log(`\n${bold(text)}\n${'-'.repeat(text.length)}`);
+}
+
+// 结构问题和数据问题要分开记。约束没生效是代码坏了,必须让退出码非零;参考
+// 数据还没核实是工作没做完,同样要吵,但不该和前者混为一谈——否则退出码就
+// 再也说明不了 schema 到底健不健康。
+function warn(label, condition, detail) {
+  if (condition) {
+    console.log(`  ${green('PASS')}  ${label}${detail ? dim('  ' + detail) : ''}`);
+  } else {
+    console.log(`  ${red('WARN')}  ${label}${detail ? '  ' + detail : ''}`);
+    warnings += 1;
+  }
 }
 
 function check(label, condition, detail) {
@@ -151,7 +164,7 @@ try {
   expectRejected(db, 'dry-off decision outside the allowed set',
     `INSERT INTO dry_off_decisions (cow_id, season, decision) VALUES (1, '2027-28', 'maybe')`);
   expectRejected(db, 'calculation basis outside the allowed set',
-    `INSERT INTO drugs (drug_name, milk_withdrawal_days, calculation_basis)
+    `INSERT INTO drugs (drug_name, milk_withdrawal_value, calculation_basis)
      VALUES ('VerifyDrug', 1, 'moon_phase')`);
   expectRejected(db, 'diagnosis outside the allowed set',
     `INSERT INTO health_events (cow_id, event_type, event_date, diagnosis)
@@ -161,7 +174,23 @@ try {
   expectRejected(db, 'negative somatic cell count',
     `INSERT INTO scc_records (cow_id, test_date, scc_value) VALUES (1, '2026-08-10', -500)`);
   expectRejected(db, 'negative withholding period',
-    `INSERT INTO drugs (drug_name, milk_withdrawal_days) VALUES ('VerifyNeg', -5)`);
+    `INSERT INTO drugs (drug_name, milk_withdrawal_value) VALUES ('VerifyNeg', -5)`);
+  expectRejected(db, 'withholding period in an unknown unit',
+    `INSERT INTO drugs (drug_name, milk_withdrawal_value, milk_withdrawal_unit)
+     VALUES ('VerifyUnit', 4, 'fortnights')`);
+  expectRejected(db, 'minimum dry period on a drug counted from the treatment date',
+    `INSERT INTO drugs (drug_name, milk_withdrawal_value, calculation_basis, minimum_dry_period_days)
+     VALUES ('VerifyDry', 4, 'treatment_date', 49)`);
+  expectRejected(db, 'a second row in the single-row farm settings table',
+    `INSERT INTO farm_settings (id, milkings_per_day) VALUES (2, 2)`);
+  expectRejected(db, 'an implausible milking frequency',
+    `UPDATE farm_settings SET milkings_per_day = 9 WHERE id = 1`);
+  expectRejected(db, 'an unknown withdrawal status',
+    `INSERT INTO health_events (cow_id, event_type, event_date, withdrawal_status)
+     VALUES (1, 'treatment', '2026-08-10', 'probably_fine')`);
+  expectRejected(db, 'a calving date that is neither predicted nor actual',
+    `INSERT INTO health_events (cow_id, event_type, event_date, calving_date, calving_date_source)
+     VALUES (1, 'dry_off', '2026-08-10', '2026-10-01', 'guessed')`);
   expectRejected(db, 'event with no date',
     `INSERT INTO health_events (cow_id, event_type, event_date) VALUES (1, 'treatment', NULL)`);
 
@@ -261,14 +290,78 @@ try {
   check('no dry-cow withholding date was calculated without a calving date',
     wronglyCalculated === 0, `${wronglyCalculated} incorrectly calculated event(s)`);
 
+  // 剂量依赖的药不允许有自动算出的解除日。出现了就说明计算逻辑被绕过了,
+  // 而绕过的后果是一个看起来完全正常的错误日期。
+  const guessedDoseDependent = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM health_events
+    JOIN drugs ON health_events.drug_id = drugs.id
+    WHERE drugs.whp_depends_on_dose = 1
+      AND health_events.deleted_at IS NULL
+      AND health_events.withdrawal_end_date IS NOT NULL
+      AND health_events.withdrawal_status != 'requires_vet_advice'
+  `).get().count;
+  check('no clear date was auto-calculated for a dose-dependent drug',
+    guessedDoseDependent === 0, `${guessedDoseDependent} event(s)`);
+
+  // 最小干奶期被打破的记录必须没有解除日。有日期就等于系统在说"可以挤了"。
+  const breachedWithDate = db.prepare(`
+    SELECT COUNT(*) AS count FROM health_events
+    WHERE deleted_at IS NULL
+      AND withdrawal_status = 'minimum_dry_period_breached'
+      AND withdrawal_end_date IS NOT NULL
+  `).get().count;
+  check('cows that breached the minimum dry period carry no clear date',
+    breachedWithDate === 0, `${breachedWithDate} event(s)`);
+
+  // ------------------------------------------------------------ reference data
+  heading('10. Reference data provenance');
+
+  const drugRows = db.prepare(`
+    SELECT drug_name, milk_withdrawal_value, milk_withdrawal_unit,
+           whp_depends_on_dose, verified_on, source_reference
+    FROM drugs WHERE is_active = 1 ORDER BY drug_name
+  `).all();
+
+  const unverified = drugRows.filter(d => d.verified_on === null);
+
+  for (const drug of drugRows) {
+    const summary = drug.whp_depends_on_dose
+      ? 'dose-dependent, entered manually'
+      : `${drug.milk_withdrawal_value} ${drug.milk_withdrawal_unit}`;
+    const mark = drug.verified_on ? green('verified ' + drug.verified_on) : red('NOT VERIFIED');
+    console.log(`  ${drug.drug_name.padEnd(20)} ${summary.padEnd(34)} ${mark}`);
+  }
+
+  console.log();
+  // 这一条是故意会失败的。它不是在检查代码有没有写对,而是在提醒:参考数据
+  // 还没核实完之前,这个系统的输出不能当作可信结果对外展示。
+  warn('every active drug has a verified withholding period',
+    unverified.length === 0,
+    unverified.length
+      ? `${unverified.length} of ${drugRows.length} still unverified — ` +
+        `check these against the ACVM register before presenting any output as meaningful`
+      : '');
+
+  // 声称核实过就必须留下出处,否则"核实"两个字没有意义。
+  const verifiedWithoutSource = drugRows.filter(d => d.verified_on && !d.source_reference).length;
+  check('no drug claims to be verified without recording its source',
+    verifiedWithoutSource === 0, `${verifiedWithoutSource} drug(s)`);
+
   // ------------------------------------------------------------------- report
   console.log('\n' + '='.repeat(60));
   if (failures === 0) {
-    console.log(green(bold('  All checks passed.')));
+    console.log(green(bold('  All structural checks passed.')));
     console.log(dim('  Every constraint above was verified against the live database,'));
     console.log(dim('  not read from the schema definition.'));
   } else {
-    console.log(red(bold(`  ${failures} check(s) failed.`)));
+    console.log(red(bold(`  ${failures} structural check(s) failed.`)));
+  }
+  if (warnings > 0) {
+    console.log();
+    console.log(red(bold(`  ${warnings} warning(s) about the data the system depends on.`)));
+    console.log(dim('  The schema is sound, but its outputs are only as good as the'));
+    console.log(dim('  reference data behind them.'));
   }
   console.log('='.repeat(60) + '\n');
 

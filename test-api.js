@@ -101,37 +101,87 @@ async function run() {
   heading('Health events and the withholding snapshot');
 
   const drugs = (await call('GET', '/api/drugs')).body;
-  const lactatingDrug = drugs.find(d => d.calculation_basis === 'treatment_date' && d.milk_withdrawal_days > 0);
-  const dryCowDrug = drugs.find(d => d.calculation_basis === 'calving_date');
+  const lactatingDrug = drugs.find(d =>
+    d.calculation_basis === 'treatment_date' && d.milk_withdrawal_value > 0 && !d.whp_depends_on_dose);
+  const dryCowDrug = drugs.find(d => d.calculation_basis === 'calving_date' && d.milk_withdrawal_unit === 'milkings');
+  const doseDependentDrug = drugs.find(d => d.whp_depends_on_dose);
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01',
     drug_id: lactatingDrug.id, diagnosis: 'clinical_mastitis', notes: 'test treatment'
   });
   const treatmentId = res.body && res.body.id;
-  const expectedEnd = new Date(Date.UTC(2026, 7, 1 + lactatingDrug.milk_withdrawal_days))
+  const expectedEnd = new Date(Date.UTC(2026, 7, 1 + lactatingDrug.milk_withdrawal_value))
     .toISOString().split('T')[0];
   assert('lactating-cow drug counts from the treatment date',
     res.status === 201 && res.body.withdrawal_end_date === expectedEnd,
     `expected ${expectedEnd}, got ${res.body && res.body.withdrawal_end_date}`);
 
+  // 干奶药按产犊后的挤奶次数算,治疗到产犊要满足标签的最小干奶期。
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'dry_off', event_date: '2026-05-10',
     calving_date: '2026-08-20', drug_id: dryCowDrug.id
   });
   const dryOffId = res.body && res.body.id;
-  const expectedDryEnd = new Date(Date.UTC(2026, 7, 20 + dryCowDrug.milk_withdrawal_days))
-    .toISOString().split('T')[0];
+  const settings = (await call('GET', '/api/settings')).body;
+  const dryCowDays = Math.ceil(dryCowDrug.milk_withdrawal_value / settings.milkings_per_day);
+  const expectedDryEnd = new Date(Date.UTC(2026, 7, 20 + dryCowDays)).toISOString().split('T')[0];
   assert('dry-cow drug counts from the calving date, not the treatment date',
     res.status === 201 && res.body.withdrawal_end_date === expectedDryEnd,
     `expected ${expectedDryEnd}, got ${res.body && res.body.withdrawal_end_date}`);
+  assert('a calving date entered at dry-off is recorded as an estimate, not a fact',
+    res.body.calving_date_source === 'predicted',
+    `got ${res.body && res.body.calving_date_source}`);
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'dry_off', event_date: '2026-05-11', drug_id: dryCowDrug.id
   });
   assert('dry-cow drug with no calving date yields no withholding date rather than a wrong one',
-    res.status === 201 && res.body.withdrawal_end_date === null,
-    `got ${res.body && res.body.withdrawal_end_date}`);
+    res.status === 201 && res.body.withdrawal_end_date === null
+      && res.body.withdrawal_status === 'awaiting_calving_date',
+    `got ${res.body && res.body.withdrawal_status}`);
+
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01', drug_id: doseDependentDrug.id
+  });
+  assert('a dose-dependent drug refuses to calculate rather than guessing',
+    res.status === 201 && res.body.withdrawal_end_date === null
+      && res.body.withdrawal_status === 'requires_vet_advice',
+    `got ${res.body && res.body.withdrawal_status}`);
+
+  // ---------------------------------------------- milkings and milking frequency
+  heading('Milkings, milking frequency and the minimum dry period');
+
+  assert('the dry-cow drug is expressed in milkings, not days',
+    dryCowDrug.milk_withdrawal_unit === 'milkings',
+    `unit is ${dryCowDrug.milk_withdrawal_unit}`);
+
+  await call('PUT', '/api/settings', { milkings_per_day: 1 });
+  const oadCow = (await call('POST', '/api/cows', { tag_number: '601', lactation_number: 3 })).body;
+  res = await call('POST', '/api/events', {
+    cow_id: oadCow.id, event_type: 'dry_off', event_date: '2026-05-10',
+    calving_date: '2026-08-20', drug_id: dryCowDrug.id
+  });
+  const oadEnd = new Date(Date.UTC(2026, 7, 20 + dryCowDrug.milk_withdrawal_value))
+    .toISOString().split('T')[0];
+  assert('once-a-day milking stretches the same label period to twice as many days',
+    res.body.withdrawal_end_date === oadEnd,
+    `expected ${oadEnd}, got ${res.body && res.body.withdrawal_end_date}`);
+  await call('PUT', '/api/settings', { milkings_per_day: 2 });
+
+  res = await call('PUT', '/api/settings', { milkings_per_day: 5 });
+  assert('an implausible milking frequency is rejected', res.status === 400);
+
+  // 提前产犊:治疗到产犊不足标签要求的最小干奶期。
+  const earlyCow = (await call('POST', '/api/cows', { tag_number: '602', lactation_number: 4 })).body;
+  res = await call('POST', '/api/events', {
+    cow_id: earlyCow.id, event_type: 'dry_off', event_date: '2026-06-01',
+    calving_date: '2026-06-25', calving_date_source: 'actual', drug_id: dryCowDrug.id
+  });
+  assert('calving sooner than the minimum dry period gives no clear date at all',
+    res.body.withdrawal_end_date === null
+      && res.body.withdrawal_status === 'minimum_dry_period_breached',
+    `got ${res.body && res.body.withdrawal_status}`);
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'calcium', event_date: '2026-08-02'
@@ -173,14 +223,14 @@ async function run() {
   heading('Correcting an existing record');
 
   res = await call('PUT', `/api/events/${treatmentId}`, { event_date: '2026-08-05' });
-  const correctedEnd = new Date(Date.UTC(2026, 7, 5 + lactatingDrug.milk_withdrawal_days))
+  const correctedEnd = new Date(Date.UTC(2026, 7, 5 + lactatingDrug.milk_withdrawal_value))
     .toISOString().split('T')[0];
   assert('changing the event date recalculates the withholding snapshot',
     res.status === 200 && res.body.withdrawal_end_date === correctedEnd,
     `expected ${correctedEnd}, got ${res.body && res.body.withdrawal_end_date}`);
 
   res = await call('PUT', `/api/events/${dryOffId}`, { calving_date: '2026-09-01' });
-  const recalculatedDryEnd = new Date(Date.UTC(2026, 8, 1 + dryCowDrug.milk_withdrawal_days))
+  const recalculatedDryEnd = new Date(Date.UTC(2026, 8, 1 + dryCowDays))
     .toISOString().split('T')[0];
   assert('correcting the calving date recalculates a dry-cow withholding date',
     res.status === 200 && res.body.withdrawal_end_date === recalculatedDryEnd,
@@ -188,6 +238,57 @@ async function run() {
 
   res = await call('PUT', '/api/events/99999', { notes: 'x' });
   assert('PUT /api/events/:id on an unknown event returns 404', res.status === 404);
+
+  // ------------------------------------------------- predicted vs actual calving
+  heading('Reconciling a predicted calving date with the actual one');
+
+  const earlyCalver = (await call('POST', '/api/cows', { tag_number: '603', lactation_number: 5 })).body;
+
+  res = await call('POST', '/api/events', {
+    cow_id: earlyCalver.id, event_type: 'dry_off', event_date: '2026-05-01',
+    calving_date: '2026-09-15', drug_id: dryCowDrug.id, notes: 'dried off, expected mid-September'
+  });
+  const predictedEvent = res.body;
+  assert('the dry-off record starts out based on an expected calving date',
+    predictedEvent.calving_date_source === 'predicted' && predictedEvent.withdrawal_end_date !== null,
+    JSON.stringify(predictedEvent.withdrawal_end_date));
+
+  // 她提前六周产犊。记录产犊事件应当把上面那条的解除日重算。
+  res = await call('POST', '/api/events', {
+    cow_id: earlyCalver.id, event_type: 'calving', event_date: '2026-08-02',
+    notes: 'calved six weeks early'
+  });
+  assert('recording a calving reports which dry-off records it corrected',
+    Array.isArray(res.body.reconciled_dry_off_events) && res.body.reconciled_dry_off_events.length === 1,
+    JSON.stringify(res.body.reconciled_dry_off_events));
+
+  const corrected = (await call('GET', '/api/events')).body.find(e => e.id === predictedEvent.id);
+  const expectedAfterCalving = new Date(Date.UTC(2026, 7, 2 + dryCowDays)).toISOString().split('T')[0];
+  assert('the clear date is recalculated from the date she actually calved',
+    corrected.withdrawal_end_date === expectedAfterCalving,
+    `expected ${expectedAfterCalving}, was ${predictedEvent.withdrawal_end_date}, got ${corrected.withdrawal_end_date}`);
+  assert('the calving date is now recorded as a fact rather than an estimate',
+    corrected.calving_date_source === 'actual' && corrected.calving_date === '2026-08-02',
+    `${corrected.calving_date_source} / ${corrected.calving_date}`);
+  assert('the number of days applied is unchanged, only the date it counts from',
+    corrected.withdrawal_days_applied === predictedEvent.withdrawal_days_applied,
+    `${predictedEvent.withdrawal_days_applied} -> ${corrected.withdrawal_days_applied}`);
+
+  // 提前得太多、突破最小干奶期时,对账的结果应该是拒绝给日期,而不是给个更早的日期。
+  const veryEarly = (await call('POST', '/api/cows', { tag_number: '604', lactation_number: 2 })).body;
+  await call('POST', '/api/events', {
+    cow_id: veryEarly.id, event_type: 'dry_off', event_date: '2026-06-01',
+    calving_date: '2026-09-01', drug_id: dryCowDrug.id
+  });
+  await call('POST', '/api/events', {
+    cow_id: veryEarly.id, event_type: 'calving', event_date: '2026-06-20'
+  });
+  const breached = (await call('GET', '/api/events')).body
+    .find(e => e.cow_id === veryEarly.id && e.event_type === 'dry_off');
+  assert('reconciling a calving that breaches the minimum dry period withdraws the clear date',
+    breached.withdrawal_end_date === null
+      && breached.withdrawal_status === 'minimum_dry_period_breached',
+    `${breached.withdrawal_status} / ${breached.withdrawal_end_date}`);
 
   // --------------------------------------------------------------- deletion
   heading('Soft deletion');
@@ -210,11 +311,80 @@ async function run() {
 
   res = await call('GET', '/api/vat-exclusions');
   assert('GET /api/vat-exclusions returns a list', res.status === 200 && Array.isArray(res.body));
-  assert('every entry carries a tag number, clear date and days remaining',
-    res.body.every(r => r.tag_number && r.withdrawal_end_date && typeof r.days_remaining === 'number'),
-    JSON.stringify(res.body));
+  // 清单上的每一行要么给出解除日和剩余天数,要么明确说明为什么给不出来。
+  // 不允许既没有日期也没有理由的行——那种行会被当成噪音跳过。
+  assert('every entry either gives a clear date or says why it cannot',
+    res.body.every(r => r.tag_number && (
+      (r.withdrawal_end_date && typeof r.days_remaining === 'number') ||
+      (r.requires_attention === true && r.warnings.length > 0)
+    )),
+    JSON.stringify(res.body.filter(r =>
+      !(r.withdrawal_end_date || (r.requires_attention && r.warnings.length)))));
   assert('soft-deleted treatments are excluded from the list',
     !res.body.some(r => r.id === treatmentId));
+
+  assert('cows whose clear date rests on an expected calving date are flagged as estimates',
+    res.body.some(r => r.is_estimate === true && r.warnings.some(w => /expected calving date/.test(w))),
+    JSON.stringify(res.body.filter(r => r.is_estimate).slice(0, 2)));
+
+  // 算不出解除日的牛最危险,却最容易从按日期筛选的清单里漏掉。
+  assert('cows needing veterinary advice appear even though they have no clear date',
+    res.body.some(r => r.requires_attention === true && r.withdrawal_end_date === null),
+    JSON.stringify(res.body.filter(r => r.requires_attention)));
+
+  assert('those needing attention are listed before the routine ones',
+    res.body.length === 0 || res.body[0].requires_attention === true);
+
+  assert('unverified withholding data is disclosed on the list',
+    res.body.some(r => r.warnings.some(w => /not been verified/.test(w))));
+
+  // ------------------------------------------------------ drug data verification
+  heading('Recording verified withholding data');
+
+  res = await call('GET', '/api/drugs/unverified');
+  const unverifiedBefore = res.body.count;
+  assert('unverified drugs can be listed', res.status === 200 && unverifiedBefore > 0,
+    `count=${unverifiedBefore}`);
+
+  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, {
+    milk_withdrawal_value: 96, milk_withdrawal_unit: 'hours', verified_on: '2026-08-17'
+  });
+  assert('a drug cannot be marked verified without recording where the figure came from',
+    res.status === 400, `status=${res.status}`);
+
+  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, {
+    milk_withdrawal_value: 96,
+    milk_withdrawal_unit: 'hours',
+    label_wording: 'Milk withholding period: 96 hours',
+    source_reference: 'ACVM register, checked against manufacturer label',
+    verified_on: '2026-08-17'
+  });
+  assert('a drug can be verified when the label wording and source are supplied',
+    res.status === 200 && res.body.verified_on === '2026-08-17');
+
+  res = await call('GET', '/api/drugs');
+  const verified = res.body.find(d => d.id === lactatingDrug.id);
+  assert('96 hours is reported as its equivalent in whole days',
+    verified.is_verified === true && /96 hours/.test(verified.withdrawal_summary),
+    verified.withdrawal_summary);
+
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01', drug_id: lactatingDrug.id
+  });
+  assert('96 hours rounds to a 4-day withholding period',
+    res.body.withdrawal_days_applied === 4 && res.body.withdrawal_end_date === '2026-08-05',
+    `${res.body.withdrawal_days_applied} days -> ${res.body.withdrawal_end_date}`);
+
+  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, { milk_withdrawal_unit: 'fortnights' });
+  assert('an unknown withholding unit is rejected', res.status === 400);
+
+  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, { minimum_dry_period_days: 49 });
+  assert('a minimum dry period cannot be set on a lactating-cow drug', res.status === 400);
+
+  res = await call('GET', '/api/drugs/unverified');
+  assert('the verified drug drops off the outstanding list',
+    res.body.count === unverifiedBefore - 1,
+    `${unverifiedBefore} -> ${res.body.count}`);
 
   // ------------------------------------------------------------------- SCC
   heading('SCC records');

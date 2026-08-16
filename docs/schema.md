@@ -117,6 +117,53 @@ When a dry-cow drug is recorded but the calving date is not yet known, the syste
 **no withholding end date at all** rather than guessing. In a food safety context,
 "unknown" is a safe answer and a wrong date is not.
 
+### 2.1a How labels actually express the period
+
+Checking the drug reference data against the ACVM register and manufacturer labels showed
+that "a number of days" is not how withholding periods are written. Three different
+structures appear, and the schema has to hold all of them.
+
+| Structure | Example | Modelled as |
+|---|---|---|
+| Hours | Orbenin L.A., 96 hours | `milk_withdrawal_unit = 'hours'`, rounded up to whole days |
+| Milkings after calving | Cepravin Dry Cow, 8 milkings | `milk_withdrawal_unit = 'milkings'`, converted using `farm_settings.milkings_per_day` |
+| Minimum dry period | Cepravin Dry Cow, at least 49 days before calving | `minimum_dry_period_days`, a precondition rather than a duration |
+| Dependent on dose | procaine penicillins | `whp_depends_on_dose`, which suppresses automatic calculation |
+
+Two consequences are worth stating plainly.
+
+**Milkings are not days.** Eight milkings is four days on a twice-a-day farm and eight
+days on a once-a-day farm. Storing the converted number alone would silently encode one
+farm's milking routine into what looks like a property of the drug.
+
+**A minimum dry period is a condition, not a countdown.** Cepravin's label reads
+*"Treatment to be at least 49 days before calving."* If a cow calves sooner than that, the
+condition under which the withholding period was established has not been met, so the
+usual period no longer applies. The system responds by withdrawing the clear date
+entirely and flagging the cow for veterinary advice — it does not calculate a longer
+period, because it has no basis on which to choose one.
+
+**Dose-dependent periods are not modelled.** A 2023 Veterinary Council notice records that
+label dose rates for many procaine penicillins were below therapeutic levels and have been
+revised upward, and that higher doses require longer withholding periods; MPI published a
+table covering 69 products. Reproducing that table is outside the scope of this project,
+and a partial reproduction would be worse than none. Such drugs are flagged instead, and
+the system requires the period to be entered by hand rather than deriving one.
+
+### 2.1b Predicted calving dates are not facts
+
+A calving date entered at dry-off is a prediction. The original design stored it and
+calculated a clear date from it with no record that the input was an estimate, so a cow
+calving early left a stale clear date in place that still looked authoritative.
+
+`calving_date_source` now distinguishes `predicted` from `actual`. Recording a calving
+event reconciles any open dry-cow withholding period for that cow against the real date.
+
+The snapshot rule is unchanged and the distinction matters: what is frozen at write time
+is the **rule** that applied — the number of days — not the **inputs** it was given. A
+prediction becoming a fact is an input changing, so the end date is recalculated while
+`withdrawal_days_applied` stays as it was.
+
 ### 2.2 The withholding result is a snapshot, not a calculation
 
 `withdrawal_days_applied` and `withdrawal_end_date` are computed once, at entry, and
@@ -229,6 +276,7 @@ so an existing database upgrades in place instead of being deleted and rebuilt.
 | 1 | initial six-table schema |
 | 2 | value constraints (non-negative numbers, canonical dates, one decision per cow per season, unique SCC test) and indexes on all foreign keys |
 | 3 | structured `diagnosis` column on health events |
+| 4 | withholding periods modelled as value + unit, minimum dry period, dose-dependence flag, provenance fields, `farm_settings`, and predicted/actual calving dates |
 
 Databases created before migrations were introduced carry `user_version = 0` but already
 hold the version 1 schema. `currentVersion()` detects this by checking whether
@@ -243,15 +291,28 @@ set around it as the SQLite documentation requires for the table-rebuild procedu
 
 ## 5. Reference data status
 
-> **The withholding periods in `seed.js` are not yet verified.**
+> **The withholding periods in the drug table are not yet verified.**
 
-Only two of the six drugs currently have milk withholding periods confirmed against a
-published source. The remainder are placeholders carried over from early development.
+The schema now records provenance alongside each figure:
 
-They must be checked against the **ACVM register** published by the Ministry for Primary
-Industries before any output of this system is presented as meaningful. A wrong
-withholding figure does not produce a slightly-off answer; it produces a confident,
-plausible answer that puts contaminated milk in the vat. The schema is complete, but the
-reference data it depends on is not.
+| Column | Purpose |
+|---|---|
+| `label_wording` | the exact text from the product label |
+| `source_reference` | where it was read — register entry or manufacturer page |
+| `verified_on` | the date it was checked; `NULL` means unverified |
 
-This is tracked as the outstanding blocker for the project.
+`verified_on IS NULL` is the definition of unverified, and the system surfaces it rather
+than hiding it: `GET /api/drugs/unverified` lists what is outstanding, the daily
+vat-exclusion list carries a warning for any cow whose figure has not been checked, and
+`npm run verify-db` prints the status of every drug.
+
+`PUT /api/drugs/:id` refuses to set `verified_on` unless both `label_wording` and
+`source_reference` are supplied. Marking something as verified without recording what was
+read is not verification.
+
+A wrong withholding figure does not produce a slightly-off answer; it produces a
+confident, plausible answer that puts contaminated milk in the vat. The schema can now
+express what the labels actually say, but the figures themselves still have to be read off
+the register and entered.
+
+This remains the outstanding blocker for the project.
