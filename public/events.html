@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Treatments · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="events">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Treatments · calvings · health</p>
+          <h1 class="page-title">Events</h1>
+          <p class="page-subtitle">Record the event once, keep the selected label revision, regimen and milking schedule with it.</p>
+        </div>
+        <div class="page-actions"><a class="btn secondary" href="/">Back to dashboard</a></div>
+      </header>
+
+      <main class="page-content stack">
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title" id="event-form-title">Record an event</h2><p class="card-subtitle">For a treatment course, enter the final treatment date.</p></div></div>
+            <form id="event-form">
+              <input id="event-edit-id" type="hidden">
+              <div class="form-grid">
+                <div class="field"><label for="cow_id">Cow</label><select id="cow_id" required></select></div>
+                <div class="field"><label for="event_type">Event type</label><select id="event_type" required>
+                  <option value="treatment">Treatment</option><option value="dry_off">Dry off</option><option value="calving">Calving</option><option value="calcium">Calcium</option><option value="other">Other</option>
+                </select></div>
+                <div class="field"><label for="event_date">Event / final treatment date</label><input id="event_date" type="date" required></div>
+                <div class="field"><label for="calving_date">Calving date <span class="hint">leave blank if not yet known</span></label><input id="calving_date" type="date"></div>
+                <div class="field"><label for="calving_date_source">Calving date status</label><select id="calving_date_source"><option value="predicted">Expected date</option><option value="actual">Actual date</option></select></div>
+                <div class="field span-2"><label for="drug_id">Medicine</label><select id="drug_id"><option value="">No medicine</option></select></div>
+                <div class="field span-2" id="regimen-field" hidden><label for="drug_rule_id">Actual label regimen</label><select id="drug_rule_id"><option value="">Select the regimen used</option></select><span class="hint" id="regimen-description"></span></div>
+                <div class="field"><label for="diagnosis">Diagnosis</label><select id="diagnosis">
+                  <option value="">Not recorded</option><option value="clinical_mastitis">Clinical mastitis</option><option value="milk_fever">Milk fever</option><option value="lameness">Lameness</option><option value="retained_membranes">Retained membranes</option><option value="metritis">Metritis</option><option value="ketosis">Ketosis</option><option value="other">Other</option>
+                </select></div>
+                <div class="field"><label>Recorded identity</label><div class="identity-panel" id="event-identity">The signed-in account is recorded by the server.</div></div>
+                <div class="field span-2"><label for="milkings_per_day">Milking pattern for this calculation</label><select id="milkings_per_day">
+                  <option value="">Use the dated farm schedule</option><option value="1">Override: once daily</option><option value="2">Override: twice daily</option><option value="3">Override: three times daily</option>
+                </select><span class="hint" id="schedule-hint">Resolved from the calculation basis date and frozen with the event.</span></div>
+                <div class="field span-2"><label for="notes">Notes</label><textarea id="notes" placeholder="Quarter, dose, observation or handover note"></textarea></div>
+                <div class="field span-2" id="correction-reason-field" hidden><label for="correction_reason">Reason for correction</label><textarea id="correction_reason" minlength="5" placeholder="Explain what was wrong and why this change is required"></textarea></div>
+              </div>
+              <div class="form-actions"><button class="btn" id="event-submit" type="submit">Save event</button><button class="btn secondary" id="event-cancel" type="button" hidden>Cancel correction</button><span class="hint">The clear date is a calculation snapshot, not an editable note.</span></div>
+            </form>
+            <div id="event-result" style="margin-top:14px" hidden></div>
+          </section>
+
+          <aside class="stack">
+            <section class="card soft">
+              <div class="card-head"><div><h2 class="card-title">Calculation preview</h2><p class="card-subtitle">What the selected product requires before submission.</p></div></div>
+              <div id="drug-preview" class="empty-state"><strong>No medicine selected</strong><span>Non-treatment events can be saved without a medicine.</span></div>
+            </section>
+            <section class="card">
+              <div class="card-head"><div><h2 class="card-title">Safe-entry checks</h2></div></div>
+              <ul class="list">
+                <li class="list-row"><div class="list-main"><p class="list-title">Product identity</p><p class="list-detail">Only active products with a current verified ACVM reference appear.</p></div></li>
+                <li class="list-row"><div class="list-main"><p class="list-title">Variable milking frequency</p><p class="list-detail">The effective-dated farm schedule is used unless this event records an explicit exception.</p></div></li>
+                <li class="list-row"><div class="list-main"><p class="list-title">Dry-cow reconciliation</p><p class="list-detail">An actual calving event replaces the prediction and recalculates pending dry-cow records.</p></div></li>
+              </ul>
+            </section>
+          </aside>
+        </div>
+
+        <section class="card">
+          <div class="card-head"><div><h2 class="card-title">Event history</h2><p class="card-subtitle">Active records only. Deleting is a recoverable soft delete.</p></div></div>
+          <div class="toolbar">
+            <div class="toolbar-fields">
+              <div class="field"><label for="event-search">Search</label><input id="event-search" type="search" placeholder="Cow, medicine or note"></div>
+              <div class="field"><label for="event-filter">Type</label><select id="event-filter"><option value="">All event types</option><option value="treatment">Treatment</option><option value="dry_off">Dry off</option><option value="calving">Calving</option><option value="calcium">Calcium</option><option value="other">Other</option></select></div>
+            </div>
+          </div>
+          <div id="event-list" class="loading">Loading event history…</div>
+          <div id="correction-history" class="audit-panel" hidden></div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/events.js"></script>
+</body>
+</html>

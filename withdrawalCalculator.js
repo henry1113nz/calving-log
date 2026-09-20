@@ -52,18 +52,71 @@ function toDays(value, unit, milkingsPerDay) {
   }
 }
 
+function milkingsPerDayOn(dateString, schedule, fallback) {
+  if (!Array.isArray(schedule) || schedule.length === 0) {
+    return fallback;
+  }
+
+  let selected = null;
+  for (const entry of schedule) {
+    if (entry.effective_from <= dateString &&
+        (!selected || entry.effective_from > selected.effective_from)) {
+      selected = entry;
+    }
+  }
+  return selected ? selected.milkings_per_day : fallback;
+}
+
+// Count actual scheduled milkings rather than converting the whole period with one
+// permanent farm setting. This matters around seasonal TAD -> OAD changes.
+function daysForMilkings(startDate, requiredMilkings, schedule, fallback) {
+  let remaining = requiredMilkings;
+  let days = 0;
+  const frequencies = [];
+
+  while (remaining > 0 && days < 366) {
+    days += 1;
+    const date = addDays(startDate, days);
+    const frequency = milkingsPerDayOn(date, schedule, fallback);
+    if (![1, 2, 3].includes(frequency)) {
+      throw new Error(`Invalid milking frequency for ${date}`);
+    }
+    if (frequencies[frequencies.length - 1] !== frequency) {
+      frequencies.push(frequency);
+    }
+    remaining -= frequency;
+  }
+
+  if (remaining > 0) {
+    throw new Error('Milking schedule did not resolve the withholding period');
+  }
+
+  return { days, frequencies };
+}
+
+function frequencyDescription(frequencies) {
+  if (!frequencies || frequencies.length === 0) return '';
+  if (frequencies.length === 1) return `${frequencies[0]} milking(s) per day`;
+  return `a dated schedule (${frequencies.join(' -> ')} milkings per day)`;
+}
+
 /**
  * @param {object} input
  * @param {object|null} input.drug            药物记录,没有用药则为 null
+ * @param {object|null} input.rule            需要选择疗程时采用的规则
  * @param {string}      input.event_date      用药日期 YYYY-MM-DD
  * @param {string|null} input.calving_date    产犊日期,干奶药需要
  * @param {string|null} input.calving_date_source  'predicted' | 'actual'
  * @param {number}      input.milkings_per_day     农场一天挤奶次数,默认 2
+ * @param {Array<object>} input.milking_schedule    effective-dated frequency changes
  * @returns {{status: string, days_applied: number|null, end_date: string|null, message: string}}
  */
 function calculateWithdrawal(input) {
   const drug = input.drug;
   const milkingsPerDay = input.milkings_per_day || 2;
+  const milkingSchedule = Array.isArray(input.milking_schedule)
+    ? input.milking_schedule
+    : [];
 
   if (!drug) {
     return {
@@ -90,19 +143,82 @@ function calculateWithdrawal(input) {
     };
   }
 
-  const withdrawalDays = toDays(
-    drug.milk_withdrawal_value,
-    drug.milk_withdrawal_unit,
-    milkingsPerDay
-  );
+  // 少数标签不能压成药品上的一个固定数字。Orbenin L.A. 的批准标签按实际
+  // 疗程和每天挤奶次数给出不同的 milkings 数;事件必须保存所选疗程规则。
+  if (drug.requires_regimen) {
+    const rule = input.rule;
+    if (!rule) {
+      return {
+        status: STATUS.REQUIRES_VET_ADVICE,
+        days_applied: null,
+        end_date: null,
+        message:
+          `${drug.drug_name} has more than one approved treatment regimen. ` +
+          'Select the regimen that was actually used before calculating a clear date.'
+      };
+    }
+
+    const regimenFrequency = milkingsPerDayOn(
+      input.event_date,
+      milkingSchedule,
+      milkingsPerDay
+    );
+    const milkings = regimenFrequency === 1
+      ? rule.milkings_once_daily
+      : (regimenFrequency === 2 ? rule.milkings_twice_daily : null);
+
+    if (milkings === null || milkings === undefined) {
+      return {
+        status: STATUS.REQUIRES_VET_ADVICE,
+        days_applied: null,
+        end_date: null,
+        message:
+          `${drug.drug_name} label rule ${rule.rule_name} does not provide a period ` +
+          `for ${regimenFrequency} milkings per day. Seek veterinary advice.`
+      };
+    }
+
+    const regimenConversion = daysForMilkings(
+      input.event_date,
+      milkings,
+      milkingSchedule,
+      regimenFrequency
+    );
+    return {
+      status: STATUS.CALCULATED,
+      days_applied: regimenConversion.days,
+      end_date: addDays(input.event_date, regimenConversion.days),
+      message:
+        `${rule.rule_name}: ${milkings} milkings using ` +
+        `${frequencyDescription(regimenConversion.frequencies)}, ` +
+        'counted from the last treatment date.'
+    };
+  }
 
   // 泌乳期用药:牛正在产奶,停药期从用药当天起算。
   if (drug.calculation_basis === 'treatment_date') {
+    const treatmentConversion = drug.milk_withdrawal_unit === 'milkings'
+      ? daysForMilkings(
+          input.event_date,
+          drug.milk_withdrawal_value,
+          milkingSchedule,
+          milkingsPerDay
+        )
+      : {
+          days: toDays(
+            drug.milk_withdrawal_value,
+            drug.milk_withdrawal_unit,
+            milkingsPerDay
+          ),
+          frequencies: []
+        };
     return {
       status: STATUS.CALCULATED,
-      days_applied: withdrawalDays,
-      end_date: addDays(input.event_date, withdrawalDays),
-      message: `Counted from the treatment date.`
+      days_applied: treatmentConversion.days,
+      end_date: addDays(input.event_date, treatmentConversion.days),
+      message: drug.milk_withdrawal_unit === 'milkings'
+        ? `Counted from the last treatment date using ${frequencyDescription(treatmentConversion.frequencies)}.`
+        : 'Counted from the last treatment date.'
     };
   }
 
@@ -119,26 +235,49 @@ function calculateWithdrawal(input) {
     };
   }
 
-  // 最小干奶期是标签上的用药前提条件,不是时长。Cepravin 写的是
-  // "Treatment to be at least 49 days before calving"。牛提前产犊、间隔不足时,
-  // 标签条件没有被满足,常规停药期就不再适用——不能照常算一个日期出来。
-  //
-  // 只在产犊日期已经是事实的时候判定。还是预测值的时候提前宣告违规没有意义,
-  // 牛可能根本不会那天产。
-  if (drug.minimum_dry_period_days !== null && drug.minimum_dry_period_days !== undefined
-      && input.calving_date_source === 'actual') {
-    const actualDryPeriod = daysBetween(input.event_date, input.calving_date);
+  const calvingConversion = drug.milk_withdrawal_unit === 'milkings'
+    ? daysForMilkings(
+        input.calving_date,
+        drug.milk_withdrawal_value,
+        milkingSchedule,
+        milkingsPerDay
+      )
+    : {
+        days: toDays(
+          drug.milk_withdrawal_value,
+          drug.milk_withdrawal_unit,
+          milkingsPerDay
+        ),
+        frequencies: []
+      };
 
-    if (actualDryPeriod < drug.minimum_dry_period_days) {
+  // Cepravin 一类干奶药的标签同时写了正常产犊和提前产犊两条规则。提前产犊
+  // 不是“无答案”:批准标签要求从治疗日起走满最小天数,再加产犊后的 milkings。
+  // 预测日期也先按这一条较晚的日期展示,实际产犊记录进来后会再次对账。
+  if (drug.minimum_dry_period_days !== null && drug.minimum_dry_period_days !== undefined) {
+    const dryPeriod = daysBetween(input.event_date, input.calving_date);
+    if (dryPeriod < drug.minimum_dry_period_days) {
+      const fullDryPeriodDate = addDays(input.event_date, drug.minimum_dry_period_days);
+      const postDryPeriodConversion = drug.milk_withdrawal_unit === 'milkings'
+        ? daysForMilkings(
+            fullDryPeriodDate,
+            drug.milk_withdrawal_value,
+            milkingSchedule,
+            milkingsPerDay
+          )
+        : calvingConversion;
+      const totalDays = drug.minimum_dry_period_days + postDryPeriodConversion.days;
+      const basis = input.calving_date_source === 'actual' ? 'actual' : 'expected';
       return {
-        status: STATUS.MINIMUM_DRY_PERIOD_BREACHED,
-        days_applied: null,
-        end_date: null,
+        status: STATUS.CALCULATED,
+        days_applied: totalDays,
+        end_date: addDays(input.event_date, totalDays),
         message:
-          `${drug.drug_name} requires at least ${drug.minimum_dry_period_days} days between ` +
-          `treatment and calving, but this cow calved after ${actualDryPeriod} days. ` +
-          'The label condition was not met, so the standard withholding period does not apply. ' +
-          'Seek veterinary advice before this cow\'s milk goes in the vat.'
+          `${drug.drug_name}: the ${basis} calving is only ${dryPeriod} days after treatment. ` +
+          `The early-calving label rule applies: ${drug.minimum_dry_period_days} days from ` +
+          `treatment plus ${drug.milk_withdrawal_value} milkings ` +
+          `(${postDryPeriodConversion.days} days using ` +
+          `${frequencyDescription(postDryPeriodConversion.frequencies)}).`
       };
     }
   }
@@ -146,14 +285,23 @@ function calculateWithdrawal(input) {
   const basis = input.calving_date_source === 'actual' ? 'actual' : 'expected';
   return {
     status: STATUS.CALCULATED,
-    days_applied: withdrawalDays,
-    end_date: addDays(input.calving_date, withdrawalDays),
+    days_applied: calvingConversion.days,
+    end_date: addDays(input.calving_date, calvingConversion.days),
     message:
       `Counted from the ${basis} calving date` +
       (drug.milk_withdrawal_unit === 'milkings'
-        ? ` (${drug.milk_withdrawal_value} milkings at ${milkingsPerDay} per day).`
+        ? ` (${drug.milk_withdrawal_value} milkings using ` +
+          `${frequencyDescription(calvingConversion.frequencies)}).`
         : '.')
   };
 }
 
-module.exports = { calculateWithdrawal, toDays, addDays, daysBetween, STATUS };
+module.exports = {
+  calculateWithdrawal,
+  toDays,
+  addDays,
+  daysBetween,
+  milkingsPerDayOn,
+  daysForMilkings,
+  STATUS
+};

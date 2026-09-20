@@ -1,9 +1,9 @@
 // 初始演示数据。只在数据库还没有任何牛只时插入一次,所以本文件可以随
 // 应用反复启动而不会重复写入或覆盖真实记录。
 //
-// 注意:drugs 表里的停药天数目前只有部分经过公开来源核对,其余为占位值,
-// 必须在系统被当作能产出可信结果之前对照 MPI 的 ACVM register 逐一核实。
-// 见 docs/schema.md 的 "Reference data status" 一节。
+// 药品行先按 v5 字段建立,db.js 随后用带版本号的 ACVM 数据包写入核验凭证、
+// 规则版本并给演示事件关联快照。把监管数据导入和普通演示数据分开,以后标签
+// 修订时可以新增一个版本,不会悄悄覆盖旧事件的依据。
 
 function seed(db) {
   const alreadySeeded = db.prepare('SELECT COUNT(*) AS count FROM cows').get().count > 0;
@@ -19,45 +19,32 @@ function seed(db) {
         ('Farm Vet', 'vet')
     `);
 
-    // verified_on 为空 = 未经核实。除 Cepravin 外,以下数值都是开发初期的占位值,
-    // 单位一律按 'days' 迁移过来,但真实标签未必用天来表达。必须逐个对照 ACVM
-    // 注册库与厂商标签核实后,连同 label_wording / source_reference / verified_on
-    // 一起更新。核实之前,系统会把这些药标记为未核实。
-    //
-    // Cepravin 的数据来自 MSD 官方产品页的标签原文,已按标签的真实单位(挤奶次数)
-    // 和最小干奶期录入,但仍留 verified_on 为空,等对照 ACVM 注册库确认后再签署。
-    //
-    // Penethaject 标记为剂量依赖:VCNZ 2023 年通告指出 procaine penicillin 类
-    // 产品的标签剂量普遍偏低已被要求上调,而剂量提高则停药期必须相应延长。
-    // 这类药不自动计算停药期,强制录入人按处方填写。
+    // 这里只放计算所需的基础形状,核验原文和来源由 acvmReferenceData.js 统一
+    // 导入。Bovaclox DC Xtra 的现行批准标签无法在当前注册库取得,因此从一开始
+    // 就停用;A004495 Bovaclox Dry Cow 是另一种产品,不能拿来替代。
     db.exec(`
       INSERT INTO drugs
         (drug_name, active_ingredient, milk_withdrawal_value, milk_withdrawal_unit,
          meat_withdrawal_days, calculation_basis, minimum_dry_period_days,
-         whp_depends_on_dose, label_wording, source_reference, verified_on)
+         whp_depends_on_dose, requires_regimen, acvm_registration_no, is_active)
       VALUES
-        ('Orbenin L.A.', 'Cloxacillin', 4, 'days', 7, 'treatment_date',
-         NULL, 0, NULL, NULL, NULL),
+        ('Orbenin L.A.', 'Cloxacillin sodium', 96, 'hours', 3, 'treatment_date',
+         NULL, 0, 1, 'A003664', 1),
 
-        ('Mastalone', 'Oxytetracycline', 4, 'days', 7, 'treatment_date',
-         NULL, 0, NULL, NULL, NULL),
+        ('Mastalone', 'Oxytetracycline hydrochloride / oleandomycin / neomycin / prednisolone',
+         8, 'milkings', 30, 'treatment_date', NULL, 0, 0, 'A000829', 1),
 
-        ('Penethaject', 'Procaine penicillin', 3, 'days', 10, 'treatment_date',
-         NULL, 1, NULL,
-         'Dose-dependent: see VCNZ 2023 notice on penicillin withholding periods and the MPI penicillin product table',
-         NULL),
+        ('Penethaject', 'Penethamate hydriodide', 48, 'hours', 7, 'treatment_date',
+         NULL, 0, 0, 'A009423', 1),
 
-        ('Cepravin Dry Cow', 'Cephalonium', 8, 'milkings', 28, 'calving_date',
-         49, 0,
-         'Treatment to be at least 49 days before calving. Milk from the first 8 milkings after calving must be discarded',
-         'https://www.msd-animal-health.co.nz/products/cepravin-dry-cow/',
-         NULL),
+        ('Cepravin Dry Cow', 'Cephalonium', 8, 'milkings', 30, 'calving_date',
+         49, 0, 0, 'A003322', 1),
 
-        ('Bovaclox DC Xtra', 'Cloxacillin / Ampicillin', 7, 'days', 28, 'calving_date',
-         NULL, 0, NULL, NULL, NULL),
+        ('Bovaclox DC Xtra', 'Ampicillin / cloxacillin', 8, 'milkings', 30, 'calving_date',
+         49, 0, 0, 'A009020', 0),
 
-        ('Teatseal', 'Bismuth subnitrate', 0, 'days', 0, 'treatment_date',
-         NULL, 0, NULL, NULL, NULL)
+        ('Teatseal', 'Bismuth subnitrate', 8, 'milkings', 0, 'calving_date',
+         NULL, 0, 0, 'A007294', 1)
     `);
 
     db.exec(`

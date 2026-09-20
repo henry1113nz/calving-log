@@ -370,6 +370,290 @@ const MIGRATIONS = [
           WHERE deleted_at IS NULL AND calving_date_source = 'predicted';
       `);
     }
+  },
+
+  {
+    version: 5,
+    name: 'version verified ACVM references and regimen-specific withdrawal rules',
+    up: (db) => {
+      // v4 能保存“数值 + 单位”,但最新版批准标签暴露了两个仍然装不下的事实:
+      // Orbenin L.A. 的停药期取决于实际疗程,而监管标签本身也会修订。药物表只
+      // 放当前值会让旧事件在标签更新后失去依据,所以 v5 把来源版本和疗程规则
+      // 独立出来,事件直接指向当时采用的版本与规则。
+      db.exec(`
+        ALTER TABLE drugs ADD COLUMN acvm_registration_no TEXT;
+        ALTER TABLE drugs ADD COLUMN label_revision TEXT;
+        ALTER TABLE drugs ADD COLUMN verified_by TEXT;
+        ALTER TABLE drugs ADD COLUMN requires_regimen INTEGER NOT NULL DEFAULT 0
+          CHECK (requires_regimen IN (0, 1));
+
+        CREATE UNIQUE INDEX idx_drugs_acvm_registration
+          ON drugs (acvm_registration_no)
+          WHERE acvm_registration_no IS NOT NULL;
+
+        CREATE TABLE drug_reference_revisions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          drug_id INTEGER NOT NULL REFERENCES drugs(id),
+          acvm_registration_no TEXT NOT NULL,
+          label_revision TEXT NOT NULL,
+          label_wording TEXT NOT NULL,
+          source_reference TEXT NOT NULL,
+          verified_on TEXT NOT NULL
+            CHECK (verified_on IS strftime('%Y-%m-%d', verified_on)),
+          verified_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE (drug_id, label_revision)
+        );
+
+        CREATE INDEX idx_drug_reference_revisions_drug
+          ON drug_reference_revisions (drug_id);
+
+        CREATE TABLE drug_withdrawal_rules (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          drug_id INTEGER NOT NULL REFERENCES drugs(id),
+          reference_revision_id INTEGER NOT NULL REFERENCES drug_reference_revisions(id),
+          rule_code TEXT NOT NULL,
+          rule_name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          milkings_once_daily INTEGER
+            CHECK (milkings_once_daily IS NULL OR milkings_once_daily >= 0),
+          milkings_twice_daily INTEGER
+            CHECK (milkings_twice_daily IS NULL OR milkings_twice_daily >= 0),
+          is_default INTEGER NOT NULL DEFAULT 0
+            CHECK (is_default IN (0, 1)),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          CHECK (milkings_once_daily IS NOT NULL OR milkings_twice_daily IS NOT NULL),
+          UNIQUE (drug_id, rule_code)
+        );
+
+        CREATE INDEX idx_drug_withdrawal_rules_drug
+          ON drug_withdrawal_rules (drug_id);
+        CREATE INDEX idx_drug_withdrawal_rules_revision
+          ON drug_withdrawal_rules (reference_revision_id);
+        CREATE UNIQUE INDEX idx_drug_withdrawal_rules_default
+          ON drug_withdrawal_rules (drug_id)
+          WHERE is_default = 1;
+
+        ALTER TABLE drugs ADD COLUMN current_reference_revision_id INTEGER
+          REFERENCES drug_reference_revisions(id);
+
+        CREATE INDEX idx_drugs_current_reference_revision
+          ON drugs (current_reference_revision_id);
+
+        ALTER TABLE health_events ADD COLUMN drug_reference_revision_id INTEGER
+          REFERENCES drug_reference_revisions(id);
+        ALTER TABLE health_events ADD COLUMN drug_rule_id INTEGER
+          REFERENCES drug_withdrawal_rules(id);
+
+        CREATE INDEX idx_health_events_reference_revision
+          ON health_events (drug_reference_revision_id);
+        CREATE INDEX idx_health_events_drug_rule
+          ON health_events (drug_rule_id);
+
+        -- 监管数据纠错不能悄悄改写历史。每次批量回填都保留旧、新快照及原因。
+        CREATE TABLE withdrawal_corrections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          health_event_id INTEGER NOT NULL REFERENCES health_events(id),
+          previous_days INTEGER,
+          previous_end_date TEXT,
+          previous_status TEXT,
+          corrected_days INTEGER,
+          corrected_end_date TEXT,
+          corrected_status TEXT,
+          reason TEXT NOT NULL,
+          corrected_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX idx_withdrawal_corrections_event
+          ON withdrawal_corrections (health_event_id);
+
+        -- 导入版本让官方数据包只应用一次,也给报告留下可查询的审计点。
+        CREATE TABLE reference_data_imports (
+          version TEXT PRIMARY KEY,
+          source_summary TEXT NOT NULL,
+          imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        -- “已核验”必须同时具备产品身份、标签版本、原文、来源和核验人。
+        -- API 校验不够,直接写数据库也必须被挡住。
+        CREATE TRIGGER drugs_verified_provenance_insert
+        BEFORE INSERT ON drugs
+        WHEN NEW.verified_on IS NOT NULL AND (
+          NEW.acvm_registration_no IS NULL OR NEW.label_revision IS NULL OR
+          NEW.verified_by IS NULL OR NEW.label_wording IS NULL OR
+          NEW.source_reference IS NULL
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'verified drug requires complete ACVM provenance');
+        END;
+
+        CREATE TRIGGER drugs_verified_provenance_update
+        BEFORE UPDATE ON drugs
+        WHEN NEW.verified_on IS NOT NULL AND (
+          NEW.acvm_registration_no IS NULL OR NEW.label_revision IS NULL OR
+          NEW.verified_by IS NULL OR NEW.label_wording IS NULL OR
+          NEW.source_reference IS NULL
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'verified drug requires complete ACVM provenance');
+        END;
+      `);
+    }
+  },
+
+  {
+    version: 6,
+    name: 'effective-dated milking schedules and event calculation snapshots',
+    up: (db) => {
+      // Milking frequency changes through the season. A single farm-wide number cannot
+      // explain which frequency was used for an old treatment, or which one should be
+      // used when a dry cow calves months after treatment. Store dated changes and keep
+      // the exact schedule used by each calculation as an event snapshot.
+      db.exec(`
+        CREATE TABLE milking_schedule (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          effective_from TEXT NOT NULL UNIQUE
+            CHECK (effective_from IS strftime('%Y-%m-%d', effective_from)),
+          milkings_per_day INTEGER NOT NULL
+            CHECK (milkings_per_day IN (1, 2, 3)),
+          note TEXT,
+          created_by INTEGER REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX idx_milking_schedule_created_by
+          ON milking_schedule (created_by);
+
+        INSERT INTO milking_schedule (effective_from, milkings_per_day, note)
+        SELECT '2000-01-01', milkings_per_day,
+               'Baseline migrated from the previous farm setting'
+        FROM farm_settings
+        WHERE id = 1;
+
+        ALTER TABLE health_events ADD COLUMN milkings_per_day_applied INTEGER
+          CHECK (milkings_per_day_applied IS NULL OR milkings_per_day_applied IN (1, 2, 3));
+        ALTER TABLE health_events ADD COLUMN milking_schedule_snapshot TEXT;
+
+        UPDATE health_events
+        SET milkings_per_day_applied = (SELECT milkings_per_day FROM farm_settings WHERE id = 1),
+            milking_schedule_snapshot = json_array(json_object(
+              'effective_from', '2000-01-01',
+              'milkings_per_day', (SELECT milkings_per_day FROM farm_settings WHERE id = 1),
+              'source', 'v5_baseline'
+            ))
+        WHERE drug_id IN (
+          SELECT id FROM drugs
+          WHERE milk_withdrawal_unit = 'milkings' OR requires_regimen = 1
+        );
+      `);
+    }
+  },
+
+  {
+    version: 7,
+    name: 'authenticate users and audit operational corrections and reviews',
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE users ADD COLUMN username TEXT;
+        ALTER TABLE users ADD COLUMN password_salt TEXT;
+        ALTER TABLE users ADD COLUMN password_hash TEXT;
+        CREATE UNIQUE INDEX idx_users_username ON users(username) WHERE username IS NOT NULL;
+
+        UPDATE users SET username = CASE name
+          WHEN 'Farm Owner' THEN 'owner'
+          WHEN 'Farm Vet' THEN 'vet'
+          WHEN 'Relief Milker' THEN 'milker'
+          ELSE 'user-' || id
+        END;
+
+        CREATE TABLE auth_sessions (
+          token_hash TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX idx_auth_sessions_user ON auth_sessions(user_id);
+        CREATE INDEX idx_auth_sessions_expiry ON auth_sessions(expires_at);
+
+        CREATE TABLE event_corrections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          health_event_id INTEGER NOT NULL REFERENCES health_events(id),
+          reason TEXT NOT NULL CHECK (length(trim(reason)) >= 5),
+          previous_snapshot TEXT NOT NULL CHECK (json_valid(previous_snapshot)),
+          corrected_snapshot TEXT NOT NULL CHECK (json_valid(corrected_snapshot)),
+          corrected_by INTEGER NOT NULL REFERENCES users(id),
+          corrected_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX idx_event_corrections_event ON event_corrections(health_event_id);
+        CREATE INDEX idx_event_corrections_user ON event_corrections(corrected_by);
+
+        CREATE TABLE event_reviews (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          health_event_id INTEGER NOT NULL REFERENCES health_events(id),
+          status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+          reason TEXT NOT NULL CHECK (length(trim(reason)) >= 5),
+          resolution TEXT,
+          opened_by INTEGER REFERENCES users(id),
+          resolved_by INTEGER REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          resolved_at TEXT,
+          CHECK (
+            (status = 'open' AND resolution IS NULL AND resolved_by IS NULL AND resolved_at IS NULL)
+            OR
+            (status = 'resolved' AND resolution IS NOT NULL AND resolved_by IS NOT NULL AND resolved_at IS NOT NULL)
+          )
+        );
+        CREATE UNIQUE INDEX idx_event_reviews_open
+          ON event_reviews(health_event_id) WHERE status = 'open';
+        CREATE INDEX idx_event_reviews_event ON event_reviews(health_event_id);
+        CREATE INDEX idx_event_reviews_opened_by ON event_reviews(opened_by);
+        CREATE INDEX idx_event_reviews_resolved_by ON event_reviews(resolved_by);
+
+        INSERT INTO event_reviews (health_event_id, reason, opened_by)
+        SELECT id,
+               'Legacy unresolved event requires an accountable review before milk enters the vat.',
+               created_by
+        FROM health_events
+        WHERE deleted_at IS NULL
+          AND withdrawal_status IN ('awaiting_calving_date', 'requires_vet_advice', 'minimum_dry_period_breached');
+      `);
+    }
+  },
+
+  {
+    version: 8,
+    name: 'capture privacy-conscious field usability feedback',
+    up: (db) => {
+      // A deployed prototype needs a traceable way to learn whether farm staff can
+      // complete the core jobs without turning free-form feedback into another source
+      // of sensitive operational data. Identity comes from the signed-in session and
+      // the structured fields make the trial results easy to compare.
+      db.exec(`
+        CREATE TABLE field_feedback (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          area TEXT NOT NULL CHECK (area IN (
+            'dashboard', 'treatments', 'reviews', 'herd', 'dry_off', 'medicines', 'overall'
+          )),
+          task_code TEXT NOT NULL CHECK (task_code IN (
+            'find_hold', 'record_treatment', 'record_calving', 'change_schedule',
+            'dry_off_review', 'review_unknown', 'overall_walkthrough'
+          )),
+          completion_status TEXT NOT NULL CHECK (completion_status IN (
+            'completed', 'completed_with_help', 'not_completed'
+          )),
+          ease_rating INTEGER NOT NULL CHECK (ease_rating BETWEEN 1 AND 5),
+          confusing_part TEXT CHECK (confusing_part IS NULL OR length(confusing_part) <= 1000),
+          suggestion TEXT CHECK (suggestion IS NULL OR length(suggestion) <= 1000),
+          submitted_by INTEGER NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX idx_field_feedback_submitted_by
+          ON field_feedback(submitted_by);
+        CREATE INDEX idx_field_feedback_created_at
+          ON field_feedback(created_at);
+      `);
+    }
   }
 ];
 
@@ -392,11 +676,26 @@ function currentVersion(db) {
   return alreadyBuilt ? 1 : 0;
 }
 
+// v5 was exercised against the development database while the migration was still
+// being finalised. Keep this post-flight idempotent so any such database receives
+// the final FK index without pretending a new data migration was applied.
+function ensureV5Postflight(db, version) {
+  if (version < 5) {
+    return;
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_drugs_current_reference_revision
+      ON drugs(current_reference_revision_id);
+  `);
+}
+
 function migrate(db) {
   const startingVersion = currentVersion(db);
   const pending = MIGRATIONS.filter(m => m.version > startingVersion);
 
   if (pending.length === 0) {
+    ensureV5Postflight(db, startingVersion);
     return { from: startingVersion, to: startingVersion, applied: [] };
   }
 
@@ -428,6 +727,8 @@ function migrate(db) {
 
     console.log(`Applied migration ${migration.version}: ${migration.name}`);
   }
+
+  ensureV5Postflight(db, LATEST_VERSION);
 
   return {
     from: startingVersion,

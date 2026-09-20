@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "test": "node test-api.js",
-    "verify-db": "node verify-db.js"
+    "verify-db": "node verify-db.js",
+    "release-check": "npm test && npm run verify-db",
+    "backup-db": "node backup-db.js",
+    "restore-db": "node restore-db.js"
   },
   "keywords": [],
   "author": "",

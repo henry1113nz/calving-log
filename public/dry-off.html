@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Dry-off · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="dry-off">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div><p class="eyebrow">Evidence before product</p><h1 class="page-title">Dry-off decisions</h1><p class="page-subtitle">Bring SCC history and clinical mastitis evidence together, then record the human decision.</p></div>
+        <div class="page-actions"><a class="btn secondary" href="/events.html">Record dry-off event</a></div>
+      </header>
+      <main class="page-content stack">
+        <section class="card">
+          <div class="form-grid">
+            <div class="field"><label for="review_cow">Cow to review</label><select id="review_cow"></select></div>
+            <div class="field"><label for="review_season">Season</label><input id="review_season" pattern="\d{4}-\d{2}" placeholder="2026-27"></div>
+          </div>
+        </section>
+
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Evidence-based recommendation</h2><p class="card-subtitle">Decision support only; the final choice remains recorded separately.</p></div><button class="btn secondary small" id="refresh-advice" type="button">Refresh</button></div>
+            <div id="recommendation" class="loading">Select a cow to load evidence…</div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Record SCC result</h2><p class="card-subtitle">Individual evidence used by the dry-off advisor.</p></div></div>
+            <form id="scc-form">
+              <div class="form-grid">
+                <div class="field"><label for="scc_test_date">Test date</label><input id="scc_test_date" type="date" required></div>
+                <div class="field"><label for="scc_value">SCC value</label><input id="scc_value" type="number" min="0" step="1" required placeholder="cells/mL"></div>
+                <div class="field span-2"><label for="scc_source">Source</label><select id="scc_source"><option value="herd_test">Herd test</option><option value="rmt">RMT</option><option value="inline">Inline</option><option value="culture">Culture</option></select></div>
+              </div>
+              <div class="form-actions"><button class="btn" type="submit">Save SCC result</button></div>
+            </form>
+            <div id="scc-result" style="margin-top:14px" hidden></div>
+          </section>
+        </div>
+
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Record final decision</h2><p class="card-subtitle">The recommendation is evidence; this is the accountable farm decision.</p></div></div>
+            <form id="decision-form">
+              <div class="form-grid">
+                <div class="field span-2"><label for="decision">Decision</label><select id="decision" required><option value="antibiotic_dct">Antibiotic dry cow therapy</option><option value="teat_seal_only">Teat seal only</option></select></div>
+                <div class="field"><label for="supporting_scc_id">Supporting SCC record</label><select id="supporting_scc_id"></select></div>
+                <div class="field"><label>Decided by</label><div class="identity-panel" id="decision-identity">The signed-in account will be recorded by the server.</div></div>
+                <div class="field span-2"><label for="justification">Justification</label><textarea id="justification" placeholder="Record why this decision was made"></textarea></div>
+              </div>
+              <div class="form-actions"><button class="btn" type="submit">Record decision</button></div>
+            </form>
+            <div id="decision-result" style="margin-top:14px" hidden></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">SCC history</h2><p class="card-subtitle">Filtered to the selected cow.</p></div></div>
+            <div id="scc-history" class="loading">Loading SCC records…</div>
+          </section>
+        </div>
+
+        <section class="card">
+          <div class="card-head"><div><h2 class="card-title">Recorded dry-off decisions</h2><p class="card-subtitle">One decision per cow and season, retained as an audit record.</p></div></div>
+          <div id="decision-history" class="loading">Loading decisions…</div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/dry-off.js"></script>
+</body>
+</html>

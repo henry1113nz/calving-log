@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Field feedback · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="feedback">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Prototype evaluation</p>
+          <h1 class="page-title">Field feedback</h1>
+          <p class="page-subtitle">Try one normal farm task, then record whether the wording and workflow made sense.</p>
+        </div>
+        <div class="page-actions"><a class="btn secondary" href="/">Back to dashboard</a></div>
+      </header>
+
+      <main class="page-content stack">
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">Tell us how the task went</h2>
+                <p class="card-subtitle">This normally takes less than one minute.</p>
+              </div>
+            </div>
+            <div id="feedback-notice" hidden></div>
+            <form id="feedback-form">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="feedback-area">Page or area</label>
+                  <select id="feedback-area" name="area" required>
+                    <option value="">-- choose an area --</option>
+                    <option value="dashboard">Dashboard</option>
+                    <option value="treatments">Treatments</option>
+                    <option value="reviews">Reviews</option>
+                    <option value="herd">Herd</option>
+                    <option value="dry_off">Dry-off</option>
+                    <option value="medicines">Medicines and milking schedule</option>
+                    <option value="overall">Whole walkthrough</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="feedback-task">Task you tried</label>
+                  <select id="feedback-task" name="task_code" required>
+                    <option value="">-- choose a task --</option>
+                    <option value="find_hold">Find which cow's milk is on hold</option>
+                    <option value="record_treatment">Record a treatment</option>
+                    <option value="record_calving">Record an actual calving</option>
+                    <option value="change_schedule">Schedule a milking-frequency change</option>
+                    <option value="dry_off_review">Complete a dry-off review</option>
+                    <option value="review_unknown">Investigate an unknown clear date</option>
+                    <option value="overall_walkthrough">Walk through the whole prototype</option>
+                  </select>
+                </div>
+                <div class="field span-2">
+                  <label for="feedback-completion">Could you finish the task?</label>
+                  <select id="feedback-completion" name="completion_status" required>
+                    <option value="">-- choose a result --</option>
+                    <option value="completed">Yes, without help</option>
+                    <option value="completed_with_help">Yes, but I needed help</option>
+                    <option value="not_completed">No, I could not finish it</option>
+                  </select>
+                </div>
+                <fieldset class="field span-2">
+                  <legend>How easy was it? <span class="hint">1 = very difficult, 5 = very easy</span></legend>
+                  <div class="rating-scale">
+                    <label class="rating-option"><input type="radio" name="ease_rating" value="1" required><span>1</span></label>
+                    <label class="rating-option"><input type="radio" name="ease_rating" value="2"><span>2</span></label>
+                    <label class="rating-option"><input type="radio" name="ease_rating" value="3"><span>3</span></label>
+                    <label class="rating-option"><input type="radio" name="ease_rating" value="4"><span>4</span></label>
+                    <label class="rating-option"><input type="radio" name="ease_rating" value="5"><span>5</span></label>
+                  </div>
+                </fieldset>
+                <div class="field span-2">
+                  <label for="confusing-part">What was confusing?</label>
+                  <textarea id="confusing-part" name="confusing_part" maxlength="1000" placeholder="For example: I was not sure whether ‘hold through’ included that day."></textarea>
+                </div>
+                <div class="field span-2">
+                  <label for="suggestion">What would you change?</label>
+                  <textarea id="suggestion" name="suggestion" maxlength="1000" placeholder="A short practical suggestion is enough."></textarea>
+                  <span class="hint">Do not enter personal details, farm-owner information or real clinical identifiers.</span>
+                </div>
+              </div>
+              <div class="form-actions"><button class="btn" id="submit-feedback" type="submit">Submit feedback</button></div>
+            </form>
+          </section>
+
+          <aside class="stack">
+            <section class="card soft">
+              <div class="card-head"><div><h2 class="card-title">Suggested test tasks</h2><p class="card-subtitle">Use demonstration data and ask the participant to think aloud.</p></div></div>
+              <ol class="test-task-list">
+                <li><a href="/">Find every cow whose milk must stay out today.</a></li>
+                <li><a href="/events.html">Record a treatment and explain the calculated dates.</a></li>
+                <li><a href="/reviews.html">Explain why an unknown date remains on hold.</a></li>
+                <li><a href="/medicines.html">Schedule a future change from TAD to OAD.</a></li>
+                <li><a href="/dry-off.html">Use SCC evidence to review one dry-off decision.</a></li>
+                <li><a href="/assistant.html">Ask which cows must stay out of the vat and explain where the result came from.</a></li>
+              </ol>
+              <p class="notice warning"><strong>Safety boundary:</strong> this is a student prototype. A participant must not use it to make a real milk-release or treatment decision.</p>
+            </section>
+          </aside>
+        </div>
+
+        <section class="card" id="feedback-results" hidden>
+          <div class="card-head">
+            <div><h2 class="card-title">Owner feedback results</h2><p class="card-subtitle">Recent responses are visible only to the Farm Owner role.</p></div>
+          </div>
+          <div id="feedback-summary"></div>
+          <div id="feedback-list" class="loading">Loading feedback…</div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/feedback.js"></script>
+</body>
+</html>

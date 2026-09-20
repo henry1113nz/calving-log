@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Medicines & schedule · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="medicines">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div><p class="eyebrow">Reference control</p><h1 class="page-title">Medicines & milking schedule</h1><p class="page-subtitle">Keep regulatory evidence and seasonal milking changes away from the daily treatment screen.</p></div>
+        <div class="page-actions"><a class="btn" href="#schedule-form">Schedule a change</a></div>
+      </header>
+      <main class="page-content stack">
+        <section class="stats-grid" style="margin-top:0">
+          <article class="stat-card"><span class="stat-label">Current milkings</span><strong class="stat-value" id="medicine-current-milkings">—</strong><span class="stat-foot" id="medicine-current-since">Loading schedule</span></article>
+          <article class="stat-card"><span class="stat-label">Verified active</span><strong class="stat-value" id="medicine-verified">—</strong><span class="stat-foot">ACVM release gate</span></article>
+          <article class="stat-card"><span class="stat-label">Awaiting verification</span><strong class="stat-value" id="medicine-unverified">—</strong><span class="stat-foot">Active products only</span></article>
+          <article class="stat-card"><span class="stat-label">Inactive retained</span><strong class="stat-value" id="medicine-inactive">—</strong><span class="stat-foot">Visible for audit</span></article>
+        </section>
+
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Seasonal milking schedule</h2><p class="card-subtitle">A dated timeline, not one permanent farm-wide number.</p></div></div>
+            <div id="schedule-list" class="loading">Loading schedule…</div>
+          </section>
+
+          <section class="card" id="schedule-form">
+            <div class="card-head"><div><h2 class="card-title">Add a schedule change</h2><p class="card-subtitle">Future changes can be entered before they begin.</p></div></div>
+            <form id="milking-schedule-form">
+              <div class="form-grid">
+                <div class="field"><label for="effective_from">Effective from</label><input id="effective_from" type="date" required></div>
+                <div class="field"><label for="schedule_milkings_per_day">Milkings per day</label><select id="schedule_milkings_per_day" required><option value="1">Once daily</option><option value="2" selected>Twice daily</option><option value="3">Three times daily</option></select></div>
+                <div class="field span-2"><label for="schedule_note">Operational note</label><textarea id="schedule_note" placeholder="e.g. Move to OAD after peak season"></textarea></div>
+                <div class="field span-2"><label>Recorded by</label><div class="identity-panel" id="schedule-identity">The signed-in account will be recorded by the server.</div></div>
+              </div>
+              <div class="form-actions"><button class="btn" type="submit">Add dated change</button></div>
+            </form>
+            <div id="schedule-result" style="margin-top:14px" hidden></div>
+          </section>
+        </div>
+
+        <section class="card">
+          <div class="card-head"><div><h2 class="card-title">ACVM reference library</h2><p class="card-subtitle">Current active products and inactive records retained for traceability.</p></div></div>
+          <div id="reference-summary" style="margin-bottom:14px" hidden></div>
+          <div id="medicine-list" class="loading">Loading medicine references…</div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/medicines.js"></script>
+</body>
+</html>

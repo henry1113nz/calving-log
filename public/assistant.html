@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Ask CalvingLog · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="assistant">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Read-only assistant</p>
+          <h1 class="page-title">Ask CalvingLog</h1>
+          <p class="page-subtitle">Ask for today's vat-exclusion list in everyday language. The database and deterministic calculator remain authoritative.</p>
+        </div>
+      </header>
+      <main class="page-content stack">
+        <p class="notice warning"><strong>Safety boundary:</strong> The assistant cannot calculate a new withholding period, approve milk release, change a record or replace veterinary and farm instructions.</p>
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle">Current supported intent: today's cows that must remain out of the vat.</p></div></div>
+            <form id="assistant-form">
+              <div class="field">
+                <label for="assistant-question">Question</label>
+                <textarea id="assistant-question" maxlength="500" required placeholder="Which cows must stay out of the vat today?"></textarea>
+                <span class="hint">Do not enter personal information. The external model, when configured, receives only this question and never receives farm records.</span>
+              </div>
+              <div class="form-actions"><button class="btn" id="assistant-submit" type="submit">Ask</button></div>
+            </form>
+            <div id="assistant-notice" style="margin-top:14px" hidden></div>
+          </section>
+          <aside class="card soft">
+            <div class="card-head"><div><h2 class="card-title">How the answer is produced</h2></div></div>
+            <ol class="test-task-list">
+              <li>The assistant classifies the question into one allowed read-only intent.</li>
+              <li>The server runs the existing authenticated vat-exclusion query.</li>
+              <li>Unknown dates remain on hold and appear as needing human review.</li>
+              <li>The assistant displays stored results; it never invents a safe date.</li>
+            </ol>
+          </aside>
+        </div>
+        <section class="card">
+          <div class="card-head"><div><h2 class="card-title">Answer</h2><p class="card-subtitle">Every result identifies its deterministic database source and assistant mode.</p></div></div>
+          <div id="assistant-result" class="empty-state"><strong>No question asked yet</strong><span>Try: “Which cows are on hold today?” or “今天哪些牛的奶不能进奶罐？”</span></div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/assistant.js"></script>
+</body>
+</html>

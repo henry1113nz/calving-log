@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Account · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="account">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div><p class="eyebrow">Identity and security</p><h1 class="page-title">Account</h1><p class="page-subtitle">Review the signed-in identity and change this account's password.</p></div>
+      </header>
+      <main class="page-content">
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Signed-in account</h2><p class="card-subtitle">Treatments, corrections and decisions use this server-side identity.</p></div></div>
+            <div id="account-identity" class="loading">Loading account…</div>
+          </section>
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Change password</h2><p class="card-subtitle">Changing it closes other sessions and keeps this browser signed in.</p></div></div>
+            <form id="password-form">
+              <div class="stack">
+                <div class="field"><label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" required></div>
+                <div class="field"><label for="new-password">New password</label><input id="new-password" type="password" autocomplete="new-password" minlength="12" required><span class="hint">Use at least 12 characters and do not reuse a farm email or banking password.</span></div>
+                <div class="field"><label for="confirm-password">Confirm new password</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="12" required></div>
+              </div>
+              <div class="form-actions"><button class="btn" id="password-submit" type="submit">Change password</button></div>
+            </form>
+            <div id="password-notice" style="margin-top:14px" hidden></div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/account.js"></script>
+</body>
+</html>

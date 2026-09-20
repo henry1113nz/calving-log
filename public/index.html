@@ -1,408 +1,84 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Calving Log</title>
-  <style>
-    * { box-sizing: border-box; }
-
-    body {
-      font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
-      max-width: 720px;
-      margin: 40px auto;
-      padding: 0 20px;
-      background: #f4f5f7;
-      color: #1f2328;
-    }
-
-    h1 { margin-bottom: 4px; }
-
-    .subtitle { color: #6a737d; margin-top: 0; margin-bottom: 28px; }
-
-    section.card {
-      background: #fff;
-      border: 1px solid #e1e4e8;
-      border-radius: 10px;
-      padding: 20px 24px;
-      margin-bottom: 24px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    }
-
-    section.card h2 {
-      margin-top: 0;
-      font-size: 17px;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 10px;
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      margin-bottom: 14px;
-    }
-
-    .field label {
-      font-size: 13px;
-      font-weight: 600;
-      color: #444;
-    }
-
-    .field .hint {
-      font-size: 12px;
-      font-weight: 400;
-      color: #888;
-    }
-
-    input, select {
-      padding: 8px 10px;
-      border: 1px solid #ccd0d5;
-      border-radius: 6px;
-      font-size: 14px;
-      background: #fff;
-    }
-
-    button[type="submit"] {
-      background: #2563eb;
-      color: #fff;
-      border: none;
-      padding: 9px 18px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-    }
-
-    button[type="submit"]:hover { background: #1d4ed8; }
-
-    ul#event-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    ul#event-list li {
-      padding: 10px 4px;
-      border-bottom: 1px solid #eee;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      font-size: 14px;
-    }
-
-    ul#event-list li:last-child { border-bottom: none; }
-
-    .event-text { flex: 1; }
-
-    .delete-btn {
-      background: none;
-      border: 1px solid #d33;
-      color: #d33;
-      border-radius: 6px;
-      padding: 4px 10px;
-      cursor: pointer;
-      font-size: 12px;
-      flex-shrink: 0;
-    }
-
-    .delete-btn:hover { background: #fdeceb; }
-
-    .empty-state {
-      color: #888;
-      font-style: italic;
-      font-size: 14px;
-      padding: 8px 4px;
-    }
-
-    ul#vat-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    ul#vat-list li {
-      padding: 10px 12px;
-      border-bottom: 1px solid #eee;
-      border-left: 3px solid #f0ad4e;
-      background: #fffaf0;
-      margin-bottom: 6px;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-
-    ul#vat-list li:last-child { margin-bottom: 0; }
-
-    ul#vat-list li.urgent {
-      border-left-color: #d33;
-      background: #fdeceb;
-    }
-
-    ul#vat-list .days-left {
-      font-weight: 600;
-    }
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Dashboard · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
-  <h1>Calving Log</h1>
-  <p class="subtitle">Cow treatments and milk withdrawal tracking</p>
+<body data-page="dashboard">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Today · milk-room handover</p>
+          <h1 class="page-title">Farm dashboard</h1>
+          <p class="page-subtitle">The short operational view: milk holds, records needing attention and the latest activity.</p>
+        </div>
+        <div class="page-actions">
+          <a class="btn secondary" href="/herd.html">Add cow</a>
+          <a class="btn" href="/events.html">Record event</a>
+        </div>
+      </header>
 
-  <section class="card">
-    <h2>Today's milk withholding list</h2>
-    <p class="hint" style="margin-top: -8px;">Cows still inside their withdrawal period — do not milk these into the vat.</p>
-    <ul id="vat-list"></ul>
-  </section>
+      <main class="page-content">
+        <section class="hero card">
+          <div class="hero-copy">
+            <p class="hero-kicker">Bulk vat protection</p>
+            <h2 id="hero-title">Loading today’s milk holds…</h2>
+            <p id="hero-copy">Checking active treatments, unresolved calculations and predicted calving dates.</p>
+            <div class="hero-actions">
+              <a class="btn" href="/events.html">Record treatment</a>
+              <a class="btn secondary" href="/dry-off.html">Review dry-off</a>
+            </div>
+          </div>
+          <div class="hero-stat">
+            <strong id="hero-hold-count">—</strong>
+            <span>cows held from the vat today</span>
+          </div>
+        </section>
 
-  <section class="card">
-    <h2>Add a new cow</h2>
-    <form id="cow-form">
-      <div class="field">
-        <label for="tag_number">Tag number</label>
-        <input type="text" id="tag_number" required>
-      </div>
-      <div class="field">
-        <label for="breed">Breed</label>
-        <input type="text" id="breed">
-      </div>
-      <div class="field">
-        <label for="birth_date">Birth date</label>
-        <input type="date" id="birth_date">
-      </div>
-      <div class="field">
-        <label for="lactation_number">Lactation number</label>
-        <input type="number" id="lactation_number" min="0">
-      </div>
-      <div class="field">
-        <label for="status">Status</label>
-        <select id="status">
-          <option value="lactating">lactating</option>
-          <option value="dry">dry</option>
-          <option value="culled">culled</option>
-        </select>
-      </div>
-      <button type="submit">Add cow</button>
-    </form>
-  </section>
+        <section class="stats-grid" aria-label="Farm summary">
+          <article class="stat-card"><span class="stat-label">Needs review</span><strong class="stat-value" id="stat-review">—</strong><span class="stat-foot">No safe clear date yet</span></article>
+          <article class="stat-card"><span class="stat-label">Current pattern</span><strong class="stat-value" id="stat-milkings">—</strong><span class="stat-foot" id="stat-milkings-foot">Effective-dated schedule</span></article>
+          <article class="stat-card"><span class="stat-label">Active herd</span><strong class="stat-value" id="stat-herd">—</strong><span class="stat-foot">Lactating and dry cows</span></article>
+          <article class="stat-card"><span class="stat-label">ACVM verified</span><strong class="stat-value" id="stat-acvm">—</strong><span class="stat-foot">Active medicine references</span></article>
+        </section>
 
-  <section class="card">
-    <h2>Add a health event</h2>
-    <form id="event-form">
-      <div class="field">
-        <label for="cow_id">Cow</label>
-        <select id="cow_id" required></select>
-      </div>
-      <div class="field">
-        <label for="event_type">Event type</label>
-        <select id="event_type" required>
-          <option value="calving">calving</option>
-          <option value="treatment">treatment</option>
-          <option value="dry_off">dry_off</option>
-          <option value="calcium">calcium</option>
-          <option value="other">other</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="event_date">Event date</label>
-        <input type="date" id="event_date" required>
-      </div>
-      <div class="field">
-        <label for="calving_date">Calving date <span class="hint">— only for dry-off drugs counted from calving</span></label>
-        <input type="date" id="calving_date">
-      </div>
-      <div class="field">
-        <label for="drug_id">Drug <span class="hint">— leave blank if none</span></label>
-        <select id="drug_id">
-          <option value="">-- none --</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="created_by">Recorded by</label>
-        <select id="created_by">
-          <option value="">-- unspecified --</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="notes">Notes</label>
-        <input type="text" id="notes">
-      </div>
-      <button type="submit">Add event</button>
-    </form>
-  </section>
+        <p class="notice warning safety-key"><strong>Reading the safety dates:</strong> “Hold through” includes that date. “Eligible from” is the earliest possible return date only when there is no other animal-health or farm hold. An unknown date always remains on hold.</p>
 
-  <section class="card">
-    <h2>All events</h2>
-    <ul id="event-list"></ul>
-  </section>
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head">
+              <div><h2 class="card-title">Today’s milk withholding list</h2><p class="card-subtitle">Unresolved records stay at the top. Unknown never means clear.</p></div>
+              <a class="btn secondary small" href="/events.html">All events</a>
+            </div>
+            <div id="vat-list" class="loading">Loading milk holds…</div>
+          </section>
 
-  <script>
-    async function loadCows() {
-      const response = await fetch('/api/cows');
-      const cows = await response.json();
+          <div class="stack">
+            <section class="card">
+              <div class="card-head"><div><h2 class="card-title">Quick actions</h2><p class="card-subtitle">Common jobs, separated from the daily safety list.</p></div></div>
+              <div class="quick-grid">
+                <a class="quick-link" href="/events.html"><strong>Record treatment</strong><span>Add drug, regimen and diagnosis</span></a>
+                <a class="quick-link" href="/herd.html"><strong>Find a cow</strong><span>Update herd details and status</span></a>
+                <a class="quick-link" href="/dry-off.html"><strong>Dry-off review</strong><span>SCC evidence and decisions</span></a>
+                <a class="quick-link" href="/medicines.html"><strong>Milking change</strong><span>Add an effective date to the schedule</span></a>
+                <a class="quick-link" href="/feedback.html"><strong>Field feedback</strong><span>Tell us what was easy or confusing</span></a>
+              </div>
+            </section>
 
-      const select = document.getElementById('cow_id');
-      cows.forEach(cow => {
-        const option = document.createElement('option');
-        option.value = cow.id;
-        option.textContent = `Cow ${cow.tag_number}`;
-        select.appendChild(option);
-      });
-    }
-
-    async function loadDrugs() {
-      const response = await fetch('/api/drugs');
-      const drugs = await response.json();
-
-      const select = document.getElementById('drug_id');
-      drugs.forEach(drug => {
-        const option = document.createElement('option');
-        option.value = drug.id;
-        option.textContent = drug.drug_name;
-        select.appendChild(option);
-      });
-    }
-
-    async function loadUsers() {
-      const response = await fetch('/api/users');
-      const users = await response.json();
-
-      const select = document.getElementById('created_by');
-      users.forEach(user => {
-        const option = document.createElement('option');
-        option.value = user.id;
-        option.textContent = user.name;
-        select.appendChild(option);
-      });
-    }
-
-    async function loadVatExclusions() {
-      const response = await fetch('/api/vat-exclusions');
-      const exclusions = await response.json();
-
-      const list = document.getElementById('vat-list');
-      list.innerHTML = '';
-
-      if (exclusions.length === 0) {
-        list.innerHTML = '<li class="empty-state">No cows currently under milk withdrawal.</li>';
-        return;
-      }
-
-      exclusions.forEach(row => {
-        const item = document.createElement('li');
-        if (row.days_remaining <= 1) {
-          item.classList.add('urgent');
-        }
-
-        item.innerHTML = `Cow ${row.tag_number} — ${row.drug_name || row.event_type}` +
-          ` — clear on ${row.withdrawal_end_date}` +
-          ` (<span class="days-left">${row.days_remaining} day${row.days_remaining === 1 ? '' : 's'} left</span>)`;
-
-        list.appendChild(item);
-      });
-    }
-
-    async function loadEvents() {
-      const response = await fetch('/api/events');
-      const events = await response.json();
-
-      const list = document.getElementById('event-list');
-      list.innerHTML = '';
-
-      if (events.length === 0) {
-        list.innerHTML = '<li class="empty-state">No events recorded yet.</li>';
-        return;
-      }
-
-      events.forEach(event => {
-        const item = document.createElement('li');
-
-        const withdrawalText = event.withdrawal_end_date
-          ? ` (milk withdrawal until ${event.withdrawal_end_date})`
-          : '';
-
-        const text = document.createElement('span');
-        text.className = 'event-text';
-        text.textContent = `${event.event_date} - Cow ${event.tag_number} - ${event.event_type}` +
-          `${event.drug_name ? ' - ' + event.drug_name : ''}${withdrawalText}` +
-          `${event.notes ? ' - ' + event.notes : ''}`;
-
-        const deleteButton = document.createElement('button');
-        deleteButton.textContent = 'Delete';
-        deleteButton.className = 'delete-btn';
-        deleteButton.addEventListener('click', async () => {
-          await fetch(`/api/events/${event.id}`, { method: 'DELETE' });
-          loadEvents();
-          loadVatExclusions();
-        });
-
-        item.appendChild(text);
-        item.appendChild(deleteButton);
-        list.appendChild(item);
-      });
-    }
-
-    document.getElementById('cow-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      const newCow = {
-        tag_number: document.getElementById('tag_number').value,
-        breed: document.getElementById('breed').value,
-        birth_date: document.getElementById('birth_date').value || null,
-        lactation_number: document.getElementById('lactation_number').value || null,
-        status: document.getElementById('status').value
-      };
-
-      const response = await fetch('/api/cows', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCow)
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        alert(error.error || 'Failed to add cow');
-        return;
-      }
-
-      document.getElementById('cow-form').reset();
-      document.getElementById('cow_id').innerHTML = '';
-      loadCows();
-    });
-
-    document.getElementById('event-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      const newEvent = {
-        cow_id: Number(document.getElementById('cow_id').value),
-        event_type: document.getElementById('event_type').value,
-        event_date: document.getElementById('event_date').value,
-        calving_date: document.getElementById('calving_date').value || null,
-        drug_id: document.getElementById('drug_id').value || null,
-        created_by: document.getElementById('created_by').value || null,
-        notes: document.getElementById('notes').value
-      };
-
-      const response = await fetch('/api/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newEvent)
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        alert(error.error || 'Failed to add event');
-        return;
-      }
-
-      document.getElementById('event-form').reset();
-      loadEvents();
-      loadVatExclusions();
-    });
-
-    loadCows();
-    loadDrugs();
-    loadUsers();
-    loadEvents();
-    loadVatExclusions();
-  </script>
+            <section class="card">
+              <div class="card-head"><div><h2 class="card-title">Recent activity</h2><p class="card-subtitle">Latest health events across the herd.</p></div></div>
+              <div id="recent-events" class="loading">Loading events…</div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/dashboard.js"></script>
 </body>
 </html>

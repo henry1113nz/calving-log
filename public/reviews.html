@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Reviews · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="reviews">
+  <div class="app-shell"><div class="app-main">
+    <header class="page-header">
+      <div><p class="eyebrow">Unknown stays visible</p><h1 class="page-title">Review queue</h1><p class="page-subtitle">Every event without an authoritative clear date remains assigned to an accountable workflow.</p></div>
+      <div class="page-actions"><a class="btn" href="/events.html">Correct an event</a></div>
+    </header>
+    <main class="page-content stack">
+      <section class="stats-grid" style="margin-top:0">
+        <article class="stat-card"><span class="stat-label">Open reviews</span><strong class="stat-value" id="review-open-count">—</strong><span class="stat-foot">Must remain out of the vat</span></article>
+        <article class="stat-card"><span class="stat-label">Awaiting calving</span><strong class="stat-value" id="review-calving-count">—</strong><span class="stat-foot">Needs an actual date</span></article>
+        <article class="stat-card"><span class="stat-label">Vet / label review</span><strong class="stat-value" id="review-vet-count">—</strong><span class="stat-foot">Cannot be inferred</span></article>
+        <article class="stat-card"><span class="stat-label">Resolved retained</span><strong class="stat-value" id="review-resolved-count">—</strong><span class="stat-foot">Auditable history</span></article>
+      </section>
+      <section class="card">
+        <div class="card-head"><div><h2 class="card-title">Open work</h2><p class="card-subtitle">Correct the source event first; a review cannot be closed while the calculation is still unresolved.</p></div></div>
+        <div id="open-reviews" class="loading">Loading open reviews…</div>
+      </section>
+      <section class="card">
+        <div class="card-head"><div><h2 class="card-title">Resolved history</h2><p class="card-subtitle">Who resolved the uncertainty, when, and why.</p></div></div>
+        <div id="resolved-reviews" class="loading">Loading review history…</div>
+      </section>
+    </main>
+  </div></div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/reviews.js"></script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Herd · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="herd">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div><p class="eyebrow">Cow records</p><h1 class="page-title">Herd</h1><p class="page-subtitle">Keep identification and lactation context separate from treatment entry.</p></div>
+        <div class="page-actions"><a class="btn" href="#cow-editor">Add cow</a></div>
+      </header>
+      <main class="page-content stack">
+        <section class="stats-grid" style="margin-top:0">
+          <article class="stat-card"><span class="stat-label">Total records</span><strong class="stat-value" id="herd-total">—</strong><span class="stat-foot">Including retained culled cows</span></article>
+          <article class="stat-card"><span class="stat-label">Lactating</span><strong class="stat-value" id="herd-lactating">—</strong><span class="stat-foot">Current milking herd</span></article>
+          <article class="stat-card"><span class="stat-label">Dry</span><strong class="stat-value" id="herd-dry">—</strong><span class="stat-foot">Dry-cow records</span></article>
+          <article class="stat-card"><span class="stat-label">Culled</span><strong class="stat-value" id="herd-culled">—</strong><span class="stat-foot">Retained for history</span></article>
+        </section>
+
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2 class="card-title">Cow list</h2><p class="card-subtitle">Search by tag or breed, then jump into treatment or dry-off work.</p></div></div>
+            <div class="toolbar">
+              <div class="toolbar-fields">
+                <div class="field"><label for="cow-search">Search</label><input id="cow-search" type="search" placeholder="Tag or breed"></div>
+                <div class="field"><label for="cow-status-filter">Status</label><select id="cow-status-filter"><option value="">All statuses</option><option value="lactating">Lactating</option><option value="dry">Dry</option><option value="culled">Culled</option></select></div>
+              </div>
+            </div>
+            <div id="cow-list" class="loading">Loading herd…</div>
+          </section>
+
+          <aside class="card" id="cow-editor">
+            <div class="card-head"><div><h2 class="card-title" id="cow-form-title">Add a cow</h2><p class="card-subtitle">Tag number is the operational identifier and must stay unique.</p></div></div>
+            <form id="cow-form">
+              <input id="cow-edit-id" type="hidden">
+              <div class="form-grid">
+                <div class="field span-2"><label for="tag_number">Tag number</label><input id="tag_number" required autocomplete="off"></div>
+                <div class="field"><label for="breed">Breed</label><input id="breed" placeholder="Friesian, Jersey, Kiwicross"></div>
+                <div class="field"><label for="birth_date">Birth date</label><input id="birth_date" type="date"></div>
+                <div class="field"><label for="lactation_number">Lactation number</label><input id="lactation_number" type="number" min="0"></div>
+                <div class="field"><label for="status">Status</label><select id="status"><option value="lactating">Lactating</option><option value="dry">Dry</option><option value="culled">Culled</option></select></div>
+              </div>
+              <div class="form-actions"><button class="btn" type="submit" id="cow-submit">Add cow</button><button class="btn secondary" type="button" id="cow-cancel" hidden>Cancel edit</button></div>
+            </form>
+            <div id="cow-result" style="margin-top:14px" hidden></div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/herd.js"></script>
+</body>
+</html>

@@ -24,6 +24,7 @@ const bold = s => `\x1b[1m${s}\x1b[0m`;
 
 let passed = 0;
 let failed = 0;
+let sessionCookie = '';
 
 function heading(text) {
   console.log(`\n${bold(text)}\n${'-'.repeat(text.length)}`);
@@ -39,22 +40,36 @@ function assert(label, condition, detail) {
   }
 }
 
+function addDays(dateString, days) {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().split('T')[0];
+}
+
 async function call(method, url, body) {
+  const headers = body ? { 'Content-Type': 'application/json' } : {};
+  if (sessionCookie) headers.Cookie = sessionCookie;
   const response = await fetch(BASE + url, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined
   });
   const text = await response.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* 204 等无内容响应 */ }
-  return { status: response.status, body: json };
+  return { status: response.status, body: json, setCookie: response.headers.get('set-cookie') };
+}
+
+async function login(username, password) {
+  sessionCookie = '';
+  const response = await call('POST', '/api/auth/login', { username, password });
+  if (response.setCookie) sessionCookie = response.setCookie.split(';')[0];
+  return response;
 }
 
 async function waitForServer(attempts = 50) {
   for (let i = 0; i < attempts; i += 1) {
     try {
-      await fetch(BASE + '/api/cows');
+      await fetch(BASE + '/api/health');
       return true;
     } catch {
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -67,10 +82,59 @@ async function run() {
   console.log(bold('\nCalvingLog API tests'));
   console.log(dim(`temporary database: ${TEST_DB}`));
 
+  // ------------------------------------------------------- authentication
+  heading('Authentication and session identity');
+
+  let res = await call('GET', '/api/cows');
+  assert('protected APIs reject an unauthenticated request', res.status === 401);
+
+  res = await login('owner', 'incorrect-password');
+  assert('login rejects an incorrect password', res.status === 401 && !sessionCookie);
+
+  res = await login('owner', 'calving-owner-2026');
+  const owner = res.body;
+  assert('the seeded owner can sign in and receives a session cookie',
+    res.status === 200 && owner.role === 'owner' && Boolean(sessionCookie), JSON.stringify(res.body));
+
+  res = await call('GET', '/api/auth/me');
+  assert('GET /api/auth/me returns the server-side session identity',
+    res.status === 200 && res.body.id === owner.id && res.body.username === 'owner',
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/auth/change-password', {
+    current_password: 'wrong-current-password', new_password: 'owner-new-password-2026'
+  });
+  assert('password change rejects an incorrect current password', res.status === 400);
+
+  res = await call('POST', '/api/auth/change-password', {
+    current_password: 'calving-owner-2026', new_password: 'too-short'
+  });
+  assert('password change requires at least twelve characters', res.status === 400);
+
+  res = await call('POST', '/api/auth/change-password', {
+    current_password: 'calving-owner-2026', new_password: 'owner-new-password-2026'
+  });
+  if (res.setCookie) sessionCookie = res.setCookie.split(';')[0];
+  assert('a signed-in user can change their own password and keep a renewed session',
+    res.status === 200 && /other signed-in sessions/i.test(res.body.message) && Boolean(res.setCookie),
+    JSON.stringify(res.body));
+
+  res = await login('owner', 'calving-owner-2026');
+  assert('the previous password stops working after a change', res.status === 401);
+
+  res = await login('owner', 'owner-new-password-2026');
+  assert('the new password works', res.status === 200 && res.body.role === 'owner');
+
+  res = await call('POST', '/api/auth/change-password', {
+    current_password: 'owner-new-password-2026', new_password: 'calving-owner-2026'
+  });
+  if (res.setCookie) sessionCookie = res.setCookie.split(';')[0];
+  assert('the test restores the development owner password', res.status === 200 && Boolean(res.setCookie));
+
   // ------------------------------------------------------------------- cows
   heading('Cows');
 
-  let res = await call('GET', '/api/cows');
+  res = await call('GET', '/api/cows');
   assert('GET /api/cows returns the seeded herd', res.status === 200 && res.body.length === 4,
     `status=${res.status} count=${res.body && res.body.length}`);
 
@@ -100,22 +164,47 @@ async function run() {
   // ----------------------------------------------------------------- events
   heading('Health events and the withholding snapshot');
 
-  const drugs = (await call('GET', '/api/drugs')).body;
-  const lactatingDrug = drugs.find(d =>
-    d.calculation_basis === 'treatment_date' && d.milk_withdrawal_value > 0 && !d.whp_depends_on_dose);
-  const dryCowDrug = drugs.find(d => d.calculation_basis === 'calving_date' && d.milk_withdrawal_unit === 'milkings');
-  const doseDependentDrug = drugs.find(d => d.whp_depends_on_dose);
+  const drugResponse = await call('GET', '/api/drugs');
+  const drugs = drugResponse.body;
+  assert('GET /api/drugs exposes the five active, verified references',
+    drugResponse.status === 200 && Array.isArray(drugs) && drugs.length === 5
+      && drugs.every(d => d.is_active === 1 && d.is_verified === true),
+    JSON.stringify(drugs));
+  assert('GET /api/drugs always exposes a rules array',
+    drugs.every(d => Array.isArray(d.rules)),
+    JSON.stringify(drugs.map(d => ({ name: d.drug_name, rules: d.rules }))));
+
+  const mastalone = drugs.find(d => d.drug_name === 'Mastalone');
+  const penethaject = drugs.find(d => d.drug_name === 'Penethaject');
+  const orbenin = drugs.find(d => d.drug_name === 'Orbenin L.A.');
+  const dryCowDrug = drugs.find(d => d.drug_name === 'Cepravin Dry Cow');
+  const teatSeal = drugs.find(d => /^teat\s*seal$/i.test(d.drug_name));
+  const lactatingDrug = mastalone;
+  const lactatingRule = lactatingDrug;
+  const dryCowRule = dryCowDrug;
+
+  assert('the five expected active products are present',
+    [mastalone, penethaject, orbenin, dryCowDrug, teatSeal].every(Boolean),
+    JSON.stringify(drugs.map(d => d.drug_name)));
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01',
     drug_id: lactatingDrug.id, diagnosis: 'clinical_mastitis', notes: 'test treatment'
   });
   const treatmentId = res.body && res.body.id;
-  const expectedEnd = new Date(Date.UTC(2026, 7, 1 + lactatingDrug.milk_withdrawal_value))
-    .toISOString().split('T')[0];
+  const lactatingDays = Math.ceil(
+    lactatingRule.milk_withdrawal_value /
+      (lactatingRule.milk_withdrawal_unit === 'hours' ? 24 :
+        lactatingRule.milk_withdrawal_unit === 'milkings' ? 2 : 1)
+  );
+  const expectedEnd = addDays('2026-08-01', lactatingDays);
   assert('lactating-cow drug counts from the treatment date',
     res.status === 201 && res.body.withdrawal_end_date === expectedEnd,
     `expected ${expectedEnd}, got ${res.body && res.body.withdrawal_end_date}`);
+  assert('the event freezes its reference revision without inventing a regimen rule',
+    Number.isInteger(res.body.drug_reference_revision_id)
+      && Object.hasOwn(res.body, 'drug_rule_id') && res.body.drug_rule_id === null,
+    JSON.stringify(res.body));
 
   // 干奶药按产犊后的挤奶次数算,治疗到产犊要满足标签的最小干奶期。
   res = await call('POST', '/api/events', {
@@ -124,8 +213,8 @@ async function run() {
   });
   const dryOffId = res.body && res.body.id;
   const settings = (await call('GET', '/api/settings')).body;
-  const dryCowDays = Math.ceil(dryCowDrug.milk_withdrawal_value / settings.milkings_per_day);
-  const expectedDryEnd = new Date(Date.UTC(2026, 7, 20 + dryCowDays)).toISOString().split('T')[0];
+  const dryCowDays = Math.ceil(dryCowRule.milk_withdrawal_value / settings.milkings_per_day);
+  const expectedDryEnd = addDays('2026-08-20', dryCowDays);
   assert('dry-cow drug counts from the calving date, not the treatment date',
     res.status === 201 && res.body.withdrawal_end_date === expectedDryEnd,
     `expected ${expectedDryEnd}, got ${res.body && res.body.withdrawal_end_date}`);
@@ -136,25 +225,38 @@ async function run() {
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'dry_off', event_date: '2026-05-11', drug_id: dryCowDrug.id
   });
+  const awaitingEventId = res.body && res.body.id;
   assert('dry-cow drug with no calving date yields no withholding date rather than a wrong one',
     res.status === 201 && res.body.withdrawal_end_date === null
       && res.body.withdrawal_status === 'awaiting_calving_date',
     `got ${res.body && res.body.withdrawal_status}`);
 
   res = await call('POST', '/api/events', {
-    cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01', drug_id: doseDependentDrug.id
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01', drug_id: orbenin.id
   });
-  assert('a dose-dependent drug refuses to calculate rather than guessing',
-    res.status === 201 && res.body.withdrawal_end_date === null
-      && res.body.withdrawal_status === 'requires_vet_advice',
-    `got ${res.body && res.body.withdrawal_status}`);
+  assert('Orbenin refuses to guess when its regimen was not selected',
+    res.status === 400 && /regimen|rule/i.test(res.body && res.body.error),
+    `status=${res.status} body=${JSON.stringify(res.body)}`);
+
+  const orbeninRule = orbenin.rules[0];
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01',
+    drug_id: orbenin.id, drug_rule_id: orbeninRule.id
+  });
+  const expectedOrbeninEnd = addDays(
+    '2026-08-01', Math.ceil(orbeninRule.milkings_twice_daily / 2)
+  );
+  assert('Orbenin calculates only after an explicit regimen is selected',
+    res.status === 201 && res.body.drug_rule_id === orbeninRule.id
+      && res.body.withdrawal_end_date === expectedOrbeninEnd,
+    JSON.stringify(res.body));
 
   // ---------------------------------------------- milkings and milking frequency
   heading('Milkings, milking frequency and the minimum dry period');
 
   assert('the dry-cow drug is expressed in milkings, not days',
-    dryCowDrug.milk_withdrawal_unit === 'milkings',
-    `unit is ${dryCowDrug.milk_withdrawal_unit}`);
+    dryCowRule.milk_withdrawal_unit === 'milkings',
+    `unit is ${dryCowRule.milk_withdrawal_unit}`);
 
   await call('PUT', '/api/settings', { milkings_per_day: 1 });
   const oadCow = (await call('POST', '/api/cows', { tag_number: '601', lactation_number: 3 })).body;
@@ -162,8 +264,7 @@ async function run() {
     cow_id: oadCow.id, event_type: 'dry_off', event_date: '2026-05-10',
     calving_date: '2026-08-20', drug_id: dryCowDrug.id
   });
-  const oadEnd = new Date(Date.UTC(2026, 7, 20 + dryCowDrug.milk_withdrawal_value))
-    .toISOString().split('T')[0];
+  const oadEnd = addDays('2026-08-20', dryCowRule.milk_withdrawal_value);
   assert('once-a-day milking stretches the same label period to twice as many days',
     res.body.withdrawal_end_date === oadEnd,
     `expected ${oadEnd}, got ${res.body && res.body.withdrawal_end_date}`);
@@ -172,16 +273,66 @@ async function run() {
   res = await call('PUT', '/api/settings', { milkings_per_day: 5 });
   assert('an implausible milking frequency is rejected', res.status === 400);
 
-  // 提前产犊:治疗到产犊不足标签要求的最小干奶期。
+  res = await call('GET', '/api/milking-schedule');
+  assert('GET /api/milking-schedule exposes the effective-dated baseline',
+    res.status === 200 && res.body.current_milkings_per_day === 2
+      && Array.isArray(res.body.entries) && res.body.entries.length === 1,
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/milking-schedule', {
+    effective_from: '2028-08-22', milkings_per_day: 1,
+    note: 'Move from TAD to OAD after peak'
+  });
+  assert('a future seasonal milking change can be scheduled',
+    res.status === 201 && res.body.effective_from === '2028-08-22'
+      && res.body.milkings_per_day === 1,
+    JSON.stringify(res.body));
+
+  const transitionCow = (await call('POST', '/api/cows', {
+    tag_number: '703', lactation_number: 3
+  })).body;
+  res = await call('POST', '/api/events', {
+    cow_id: transitionCow.id, event_type: 'dry_off', event_date: '2028-05-01',
+    calving_date: '2028-08-20', drug_id: dryCowDrug.id
+  });
+  assert('milkings are counted across a dated TAD-to-OAD transition',
+    res.status === 201 && res.body.withdrawal_end_date === '2028-08-27'
+      && res.body.milkings_per_day_applied === 2
+      && /2028-08-22/.test(res.body.milking_schedule_snapshot || ''),
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/events', {
+    cow_id: transitionCow.id, event_type: 'dry_off', event_date: '2028-05-02',
+    calving_date: '2028-08-20', drug_id: dryCowDrug.id, milkings_per_day: 2
+  });
+  assert('an event-level milking exception overrides the dated schedule and is snapshotted',
+    res.status === 201 && res.body.withdrawal_end_date === '2028-08-24'
+      && /event_override/.test(res.body.milking_schedule_snapshot || ''),
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/milking-schedule', {
+    effective_from: '2028-08-22', milkings_per_day: 2
+  });
+  assert('two milking changes cannot share the same effective date', res.status === 409);
+
+  res = await call('POST', '/api/milking-schedule', {
+    effective_from: '2028-02-31', milkings_per_day: 2
+  });
+  assert('a milking schedule rejects impossible dates', res.status === 400);
+
+  // 提前产犊:Cepravin 标签不是简单报错,而是从治疗日起完成 49 天条件后再加
+  // 产犊后的 8 次挤奶。这个分支最容易被旧 v4 语义误判成“无法计算”。
   const earlyCow = (await call('POST', '/api/cows', { tag_number: '602', lactation_number: 4 })).body;
   res = await call('POST', '/api/events', {
     cow_id: earlyCow.id, event_type: 'dry_off', event_date: '2026-06-01',
     calving_date: '2026-06-25', calving_date_source: 'actual', drug_id: dryCowDrug.id
   });
-  assert('calving sooner than the minimum dry period gives no clear date at all',
-    res.body.withdrawal_end_date === null
-      && res.body.withdrawal_status === 'minimum_dry_period_breached',
-    `got ${res.body && res.body.withdrawal_status}`);
+  const expectedEarlyCepravinEnd = addDays(
+    '2026-06-01', dryCowRule.minimum_dry_period_days + dryCowDays
+  );
+  assert('Cepravin early-calving rule counts treatment + 49 days + 8 milkings',
+    res.status === 201 && res.body.withdrawal_end_date === expectedEarlyCepravinEnd,
+    `expected ${expectedEarlyCepravinEnd}, got ${res.body && res.body.withdrawal_end_date}`);
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'calcium', event_date: '2026-08-02'
@@ -205,8 +356,8 @@ async function run() {
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01', created_by: 99999
   });
-  assert('POST /api/events with an unknown user returns 400 rather than 500', res.status === 400,
-    `status=${res.status}`);
+  assert('POST /api/events ignores a forged creator and records the signed-in owner',
+    res.status === 201 && res.body.created_by === owner.id, JSON.stringify(res.body));
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'levitation', event_date: '2026-08-01'
@@ -222,22 +373,64 @@ async function run() {
   // --------------------------------------------------------------- updating
   heading('Correcting an existing record');
 
-  res = await call('PUT', `/api/events/${treatmentId}`, { event_date: '2026-08-05' });
-  const correctedEnd = new Date(Date.UTC(2026, 7, 5 + lactatingDrug.milk_withdrawal_value))
-    .toISOString().split('T')[0];
+  res = await call('PUT', `/api/events/${treatmentId}`, {
+    event_date: '2026-08-05', correction_reason: 'Corrected from the treatment notebook'
+  });
+  const correctedEnd = addDays('2026-08-05', lactatingDays);
   assert('changing the event date recalculates the withholding snapshot',
     res.status === 200 && res.body.withdrawal_end_date === correctedEnd,
     `expected ${correctedEnd}, got ${res.body && res.body.withdrawal_end_date}`);
 
-  res = await call('PUT', `/api/events/${dryOffId}`, { calving_date: '2026-09-01' });
-  const recalculatedDryEnd = new Date(Date.UTC(2026, 8, 1 + dryCowDays))
-    .toISOString().split('T')[0];
+  res = await call('PUT', `/api/events/${dryOffId}`, {
+    calving_date: '2026-09-01', correction_reason: 'Updated expected calving date'
+  });
+  const recalculatedDryEnd = addDays('2026-09-01', dryCowDays);
   assert('correcting the calving date recalculates a dry-cow withholding date',
     res.status === 200 && res.body.withdrawal_end_date === recalculatedDryEnd,
     `expected ${recalculatedDryEnd}, got ${res.body && res.body.withdrawal_end_date}`);
 
   res = await call('PUT', '/api/events/99999', { notes: 'x' });
   assert('PUT /api/events/:id on an unknown event returns 404', res.status === 404);
+
+  res = await call('GET', `/api/events/${treatmentId}/corrections`);
+  assert('the correction endpoint exposes the reason, actor and immutable snapshots',
+    res.status === 200 && res.body.length === 1
+      && res.body[0].reason === 'Corrected from the treatment notebook'
+      && res.body[0].corrected_by === owner.id
+      && JSON.parse(res.body[0].previous_snapshot).event_date === '2026-08-01'
+      && JSON.parse(res.body[0].corrected_snapshot).event_date === '2026-08-05',
+    JSON.stringify(res.body));
+
+  res = await call('GET', '/api/reviews?status=open');
+  assert('an automatically unprovable event stays visible in the open review queue',
+    res.status === 200 && res.body.some(review => review.health_event_id === awaitingEventId),
+    JSON.stringify(res.body));
+
+  res = await call('PUT', `/api/events/${awaitingEventId}`, {
+    calving_date: '2026-09-12', calving_date_source: 'predicted',
+    correction_reason: 'Expected calving date supplied for planning'
+  });
+  assert('an expected date can calculate an estimate without pretending it is authoritative',
+    res.status === 200 && res.body.withdrawal_status === 'calculated'
+      && res.body.withdrawal_end_date !== null, JSON.stringify(res.body));
+
+  res = await call('GET', '/api/reviews?status=open');
+  assert('the review remains open while its clear date still rests on a prediction',
+    res.status === 200 && res.body.some(review => review.health_event_id === awaitingEventId
+      && /estimated clear date/i.test(review.reason)), JSON.stringify(res.body));
+
+  res = await call('PUT', `/api/events/${awaitingEventId}`, {
+    calving_date: '2026-09-10', calving_date_source: 'actual',
+    correction_reason: 'Actual calving date supplied from the calving log'
+  });
+  assert('recording the actual date produces an authoritative withdrawal result',
+    res.status === 200 && res.body.withdrawal_status === 'calculated'
+      && res.body.calving_date_source === 'actual', JSON.stringify(res.body));
+
+  res = await call('GET', '/api/reviews?status=resolved');
+  assert('the accountable review is retained as resolved rather than disappearing',
+    res.status === 200 && res.body.some(review => review.health_event_id === awaitingEventId
+      && review.resolved_by === owner.id), JSON.stringify(res.body));
 
   // ------------------------------------------------- predicted vs actual calving
   heading('Reconciling a predicted calving date with the actual one');
@@ -263,7 +456,7 @@ async function run() {
     JSON.stringify(res.body.reconciled_dry_off_events));
 
   const corrected = (await call('GET', '/api/events')).body.find(e => e.id === predictedEvent.id);
-  const expectedAfterCalving = new Date(Date.UTC(2026, 7, 2 + dryCowDays)).toISOString().split('T')[0];
+  const expectedAfterCalving = addDays('2026-08-02', dryCowDays);
   assert('the clear date is recalculated from the date she actually calved',
     corrected.withdrawal_end_date === expectedAfterCalving,
     `expected ${expectedAfterCalving}, was ${predictedEvent.withdrawal_end_date}, got ${corrected.withdrawal_end_date}`);
@@ -274,7 +467,7 @@ async function run() {
     corrected.withdrawal_days_applied === predictedEvent.withdrawal_days_applied,
     `${predictedEvent.withdrawal_days_applied} -> ${corrected.withdrawal_days_applied}`);
 
-  // 提前得太多、突破最小干奶期时,对账的结果应该是拒绝给日期,而不是给个更早的日期。
+  // 真正产犊后如果不足 49 天,对账也必须切换到标签的提前产犊规则。
   const veryEarly = (await call('POST', '/api/cows', { tag_number: '604', lactation_number: 2 })).body;
   await call('POST', '/api/events', {
     cow_id: veryEarly.id, event_type: 'dry_off', event_date: '2026-06-01',
@@ -285,10 +478,12 @@ async function run() {
   });
   const breached = (await call('GET', '/api/events')).body
     .find(e => e.cow_id === veryEarly.id && e.event_type === 'dry_off');
-  assert('reconciling a calving that breaches the minimum dry period withdraws the clear date',
-    breached.withdrawal_end_date === null
-      && breached.withdrawal_status === 'minimum_dry_period_breached',
-    `${breached.withdrawal_status} / ${breached.withdrawal_end_date}`);
+  const expectedReconciledEarlyEnd = addDays(
+    '2026-06-01', dryCowRule.minimum_dry_period_days + dryCowDays
+  );
+  assert('reconciling an early calving applies treatment + 49 days + 8 milkings',
+    breached.withdrawal_end_date === expectedReconciledEarlyEnd,
+    `expected ${expectedReconciledEarlyEnd}, got ${breached.withdrawal_end_date}`);
 
   // --------------------------------------------------------------- deletion
   heading('Soft deletion');
@@ -320,6 +515,10 @@ async function run() {
     )),
     JSON.stringify(res.body.filter(r =>
       !(r.withdrawal_end_date || (r.requires_attention && r.warnings.length)))));
+  assert('a calculated hold exposes the next day as the earliest eligible date',
+    res.body.filter(r => r.withdrawal_end_date).every(r =>
+      r.eligible_from_date === addDays(r.withdrawal_end_date, 1)),
+    JSON.stringify(res.body));
   assert('soft-deleted treatments are excluded from the list',
     !res.body.some(r => r.id === treatmentId));
 
@@ -328,63 +527,118 @@ async function run() {
     JSON.stringify(res.body.filter(r => r.is_estimate).slice(0, 2)));
 
   // 算不出解除日的牛最危险,却最容易从按日期筛选的清单里漏掉。
-  assert('cows needing veterinary advice appear even though they have no clear date',
-    res.body.some(r => r.requires_attention === true && r.withdrawal_end_date === null),
-    JSON.stringify(res.body.filter(r => r.requires_attention)));
+  assert('verified active references no longer emit an unverified-data warning',
+    res.body.every(r => !r.warnings.some(w => /not been verified/i.test(w))),
+    JSON.stringify(res.body));
 
-  assert('those needing attention are listed before the routine ones',
-    res.body.length === 0 || res.body[0].requires_attention === true);
+  // ------------------------------------------------------ read-only assistant
+  heading('Constrained natural-language assistant');
 
-  assert('unverified withholding data is disclosed on the list',
-    res.body.some(r => r.warnings.some(w => /not been verified/.test(w))));
+  const directVatRows = res.body;
+  res = await call('POST', '/api/assistant/query', {
+    question: 'Which cows must stay out of the vat today?'
+  });
+  assert('the assistant recognises the supported read-only vat question',
+    res.status === 200 && res.body.supported === true
+      && res.body.source === 'deterministic_database_query', JSON.stringify(res.body));
+  assert('the assistant returns the same authoritative rows as the existing vat endpoint',
+    res.body.count === directVatRows.length
+      && res.body.rows.map(row => row.id).join(',') === directVatRows.map(row => row.id).join(','),
+    JSON.stringify({ assistant: res.body.rows, direct: directVatRows }));
+  assert('the assistant exposes that the local constrained matcher was used without an API key',
+    res.body.assistant_mode === 'local' && /not configured/i.test(res.body.notice),
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/assistant/query', {
+    question: '今天哪些牛的奶不能进奶罐？'
+  });
+  assert('the constrained assistant also recognises the supported Chinese question',
+    res.status === 200 && res.body.supported === true && res.body.count === directVatRows.length,
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/assistant/query', { question: 'Diagnose cow 212 for me' });
+  assert('unsupported or clinical requests are refused instead of guessed',
+    res.status === 200 && res.body.supported === false && !Object.hasOwn(res.body, 'rows'),
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/assistant/query', { question: '' });
+  assert('the assistant rejects an empty question', res.status === 400);
 
   // ------------------------------------------------------ drug data verification
-  heading('Recording verified withholding data');
+  heading('Versioned and verified ACVM reference data');
 
   res = await call('GET', '/api/drugs/unverified');
-  const unverifiedBefore = res.body.count;
-  assert('unverified drugs can be listed', res.status === 200 && unverifiedBefore > 0,
-    `count=${unverifiedBefore}`);
+  assert('there are no unverified active drugs',
+    res.status === 200 && res.body.count === 0 && res.body.drugs.length === 0,
+    JSON.stringify(res.body));
 
-  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, {
-    milk_withdrawal_value: 96, milk_withdrawal_unit: 'hours', verified_on: '2026-08-17'
-  });
-  assert('a drug cannot be marked verified without recording where the figure came from',
-    res.status === 400, `status=${res.status}`);
+  res = await call('GET', '/api/drugs/reference-status');
+  const referenceStatus = res.body;
+  assert('reference-status reports five verified active drugs and one inactive drug',
+    res.status === 200
+      && referenceStatus.active_count === 5
+      && referenceStatus.verified_active_count === 5
+      && referenceStatus.unverified_active_count === 0
+      && referenceStatus.inactive_count === 1,
+    JSON.stringify(referenceStatus));
+  const inactiveBovaclox = Array.isArray(referenceStatus.drugs)
+    ? referenceStatus.drugs.find(d => d.drug_name === 'Bovaclox DC Xtra')
+    : null;
+  assert('Bovaclox DC Xtra is retained for history but inactive and unverified',
+    inactiveBovaclox && inactiveBovaclox.is_active === 0 && inactiveBovaclox.is_verified === false,
+    JSON.stringify(inactiveBovaclox));
 
-  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, {
-    milk_withdrawal_value: 96,
-    milk_withdrawal_unit: 'hours',
-    label_wording: 'Milk withholding period: 96 hours',
-    source_reference: 'ACVM register, checked against manufacturer label',
-    verified_on: '2026-08-17'
-  });
-  assert('a drug can be verified when the label wording and source are supplied',
-    res.status === 200 && res.body.verified_on === '2026-08-17');
+  assert('every active drug carries complete ACVM provenance',
+    drugs.every(d => d.acvm_registration_no && d.label_revision && d.verified_on
+      && d.verified_by && d.source_reference && d.label_wording),
+    JSON.stringify(drugs.map(d => ({
+      drug_name: d.drug_name,
+      acvm_registration_no: d.acvm_registration_no,
+      label_revision: d.label_revision,
+      verified_on: d.verified_on,
+      verified_by: d.verified_by
+    }))));
 
-  res = await call('GET', '/api/drugs');
-  const verified = res.body.find(d => d.id === lactatingDrug.id);
-  assert('96 hours is reported as its equivalent in whole days',
-    verified.is_verified === true && /96 hours/.test(verified.withdrawal_summary),
-    verified.withdrawal_summary);
+  assert('Orbenin advertises that a regimen choice is mandatory',
+    orbenin.requires_regimen === 1 && orbenin.rules.length > 1,
+    JSON.stringify(orbenin));
+  assert('Mastalone is 8 milkings with a 30-day meat withholding period',
+    mastalone.milk_withdrawal_value === 8
+      && mastalone.milk_withdrawal_unit === 'milkings'
+      && mastalone.meat_withdrawal_days === 30,
+    JSON.stringify(mastalone));
+  assert('Penethaject is penethamate with a 48-hour milk and 7-day meat period',
+    /penethamate/i.test(penethaject.active_ingredient)
+      && penethaject.milk_withdrawal_value === 48
+      && penethaject.milk_withdrawal_unit === 'hours'
+      && penethaject.meat_withdrawal_days === 7,
+    JSON.stringify(penethaject));
+  assert('Cepravin records the 49-day condition and 8 milkings',
+    dryCowRule.minimum_dry_period_days === 49
+      && dryCowRule.milk_withdrawal_value === 8
+      && dryCowRule.milk_withdrawal_unit === 'milkings',
+    JSON.stringify(dryCowRule));
+  assert('TeatSeal is counted from calving and requires 8 milkings',
+    teatSeal.calculation_basis === 'calving_date'
+      && teatSeal.milk_withdrawal_value === 8
+      && teatSeal.milk_withdrawal_unit === 'milkings',
+    JSON.stringify(teatSeal));
 
   res = await call('POST', '/api/events', {
-    cow_id: newCowId, event_type: 'treatment', event_date: '2026-08-01', drug_id: lactatingDrug.id
+    cow_id: newCowId, event_type: 'dry_off', event_date: '2026-08-01', drug_id: teatSeal.id
   });
-  assert('96 hours rounds to a 4-day withholding period',
-    res.body.withdrawal_days_applied === 4 && res.body.withdrawal_end_date === '2026-08-05',
-    `${res.body.withdrawal_days_applied} days -> ${res.body.withdrawal_end_date}`);
+  assert('TeatSeal waits for a calving date instead of counting from treatment',
+    res.status === 201 && res.body.withdrawal_end_date === null
+      && res.body.withdrawal_status === 'awaiting_calving_date',
+    JSON.stringify(res.body));
 
-  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, { milk_withdrawal_unit: 'fortnights' });
-  assert('an unknown withholding unit is rejected', res.status === 400);
-
-  res = await call('PUT', `/api/drugs/${lactatingDrug.id}`, { minimum_dry_period_days: 49 });
-  assert('a minimum dry period cannot be set on a lactating-cow drug', res.status === 400);
-
-  res = await call('GET', '/api/drugs/unverified');
-  assert('the verified drug drops off the outstanding list',
-    res.body.count === unverifiedBefore - 1,
-    `${unverifiedBefore} -> ${res.body.count}`);
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'dry_off', event_date: '2026-08-01',
+    calving_date: '2026-09-01', calving_date_source: 'actual', drug_id: teatSeal.id
+  });
+  assert('TeatSeal clears after 8 milkings from calving',
+    res.status === 201 && res.body.withdrawal_end_date === '2026-09-05',
+    JSON.stringify(res.body));
 
   // ------------------------------------------------------------------- SCC
   heading('SCC records');
@@ -452,19 +706,90 @@ async function run() {
   res = await call('POST', '/api/decisions', {
     cow_id: newCowId, season: '2027-28', decision: 'antibiotic_dct', decided_by: 99999
   });
-  assert('a decision by an unknown user returns 400', res.status === 400);
+  assert('a forged decision actor is ignored in favour of the signed-in owner',
+    res.status === 201 && res.body.decided_by === owner.id, JSON.stringify(res.body));
 
   // ------------------------------------------------------------------ users
   heading('Users');
 
-  res = await call('POST', '/api/users', { name: 'Weekend Milker', role: 'milker' });
-  assert('POST /api/users creates a user', res.status === 201);
+  res = await call('POST', '/api/users', {
+    name: 'Weekend Milker', username: 'weekend', password: 'weekend-2026', role: 'milker'
+  });
+  assert('POST /api/users creates a credentialled user without exposing password fields',
+    res.status === 201 && res.body.username === 'weekend'
+      && !Object.hasOwn(res.body, 'password_hash') && !Object.hasOwn(res.body, 'password_salt'),
+    JSON.stringify(res.body));
 
-  res = await call('POST', '/api/users', { name: 'Nobody', role: 'president' });
+  res = await call('POST', '/api/users', {
+    name: 'Nobody', username: 'nobody', password: 'nobody-2026', role: 'president'
+  });
   assert('an invalid role is rejected', res.status >= 400, `status=${res.status}`);
 
   res = await call('POST', '/api/users', { role: 'milker' });
   assert('POST /api/users without a name is rejected', res.status === 400);
+
+  res = await call('GET', '/api/users');
+  assert('GET /api/users never exposes password salts or hashes',
+    res.status === 200 && res.body.every(user => !Object.hasOwn(user, 'password_hash')
+      && !Object.hasOwn(user, 'password_salt')), JSON.stringify(res.body));
+
+  // ---------------------------------------------------------- field feedback
+  heading('Field usability feedback');
+
+  res = await call('POST', '/api/feedback', {
+    area: 'dashboard', task_code: 'find_hold', completion_status: 'completed_with_help',
+    ease_rating: 3, confusing_part: 'I needed the inclusive date explained.',
+    suggestion: 'Keep the earliest eligible date beside the hold date.'
+  });
+  assert('POST /api/feedback saves a structured response under the signed-in user',
+    res.status === 201 && res.body.submitted_by === owner.id && res.body.ease_rating === 3,
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/feedback', {
+    area: 'dashboard', task_code: 'find_hold', completion_status: 'completed', ease_rating: 7
+  });
+  assert('field feedback rejects a rating outside 1 to 5', res.status === 400);
+
+  res = await call('GET', '/api/feedback');
+  assert('the owner can review field feedback with participant role context',
+    res.status === 200 && res.body.length === 1
+      && res.body[0].submitted_by_role === 'owner', JSON.stringify(res.body));
+
+  // ------------------------------------------------ role-based authorisation
+  heading('Role-based authorisation');
+
+  res = await login('milker', 'calving-milker-2026');
+  assert('the seeded milker can sign in', res.status === 200 && res.body.role === 'milker');
+
+  res = await call('POST', '/api/milking-schedule', {
+    effective_from: '2029-01-01', milkings_per_day: 1
+  });
+  assert('a milker cannot change farm settings', res.status === 403);
+
+  res = await call('PUT', `/api/events/${dryOffId}`, {
+    notes: 'attempted change', correction_reason: 'Milker tried to amend the record'
+  });
+  assert('a milker cannot correct an existing health event', res.status === 403);
+
+  res = await call('POST', '/api/decisions', {
+    cow_id: cleanCow.id, season: '2028-29', decision: 'teat_seal_only'
+  });
+  assert('a milker cannot record the accountable dry-off decision', res.status === 403);
+
+  res = await call('POST', '/api/users', {
+    name: 'Unauthorised', username: 'unauthorised', password: 'password-2026', role: 'milker'
+  });
+  assert('a milker cannot create another account', res.status === 403);
+
+  res = await call('POST', '/api/feedback', {
+    area: 'overall', task_code: 'overall_walkthrough', completion_status: 'completed',
+    ease_rating: 4, suggestion: 'The larger type was easier to read.'
+  });
+  assert('a milker can submit their own usability feedback',
+    res.status === 201 && res.body.submitted_by_role === 'milker', JSON.stringify(res.body));
+
+  res = await call('GET', '/api/feedback');
+  assert('a milker cannot read other participants\' feedback', res.status === 403);
 }
 
 // ---------------------------------------------------------------------------
@@ -472,7 +797,13 @@ async function run() {
 fs.rmSync(TEST_DB, { force: true });
 
 const server = spawn(process.execPath, ['server.js'], {
-  env: { ...process.env, CALVING_LOG_DB: TEST_DB, PORT: String(PORT) },
+  env: {
+    ...process.env,
+    CALVING_LOG_DB: TEST_DB,
+    PORT: String(PORT),
+    OPENAI_API_KEY: '',
+    OPENAI_MODEL: ''
+  },
   stdio: ['ignore', 'ignore', 'pipe']
 });
 

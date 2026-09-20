@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Sign in · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="login-brand"><span class="brand-mark">CL</span><div><strong>Calving Log</strong><p style="margin:2px 0 0">Accountable farm records</p></div></div>
+    <h1>Sign in</h1>
+    <p>Your session determines who is recorded against treatments, corrections and decisions.</p>
+    <form id="login-form" class="stack">
+      <div class="field"><label for="username">Username</label><input id="username" autocomplete="username" required></div>
+      <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div>
+      <button class="btn" type="submit">Sign in</button>
+    </form>
+    <div id="login-result" style="margin-top:14px" hidden></div>
+  </main>
+  <script src="/assets/login.js"></script>
+</body>
+</html>
