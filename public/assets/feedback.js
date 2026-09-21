@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     change_schedule: 'Change milking schedule',
     dry_off_review: 'Dry-off review',
     review_unknown: 'Review unknown date',
+    ask_assistant: 'Ask in everyday language',
     overall_walkthrough: 'Whole walkthrough'
   };
 
@@ -69,15 +70,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('feedback-form').addEventListener('submit', async event => {
     event.preventDefault();
     const button = document.getElementById('submit-feedback');
-    const form = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(form.entries());
+    // event.currentTarget 在 await 之后就变成 null,保存成功却会抛错,参与者看到的是
+    // 一条红色的 JavaScript 报错而不是"已保存"——然后他们会重复提交。
+    const form = event.currentTarget;
+    const payload = Object.fromEntries(new FormData(form).entries());
     payload.ease_rating = Number(payload.ease_rating);
 
     setBusy(button, true, 'Submitting…');
     showNotice('#feedback-notice', '');
     try {
       await requestJson('/api/feedback', jsonOptions('POST', payload));
-      event.currentTarget.reset();
+      form.reset();
       showNotice('#feedback-notice', 'Thank you. Your feedback was saved for the next design review.', 'success');
       await loadOwnerResults();
     } catch (error) {

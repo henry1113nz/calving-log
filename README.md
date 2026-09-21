@@ -97,7 +97,7 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 
 In development — COMPX576 project, University of Waikato.
 
-The application is at schema version 8. Five current products in the active reference
+The application is at schema version 9. Five current products in the active reference
 set have been checked against their current MPI ACVM Approved Labels, including the label
 wording, source, revision and rule variants used by the calculator. `Bovaclox DC Xtra`
 (A009020) is deliberately inactive because the current register does not provide a

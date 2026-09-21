@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       ? `${vat.length} cow${vat.length === 1 ? '' : 's'} must stay out of the vat.`
       : 'The vat list is clear today.';
     document.getElementById('hero-copy').textContent = needsReview
-      ? `${needsReview} record${needsReview === 1 ? '' : 's'} need a person to confirm the clear date before milk can be accepted.`
+      ? `${needsReview} record${needsReview === 1 ? ' needs' : 's need'} a person to confirm the clear date before milk can be accepted.`
       : 'Every active medicine hold has a calculated date. Predicted dates remain marked, and other farm holds must still be checked.';
     document.getElementById('stat-review').textContent = needsReview;
     document.getElementById('stat-milkings').textContent = `${schedule.current_milkings_per_day}× / day`;

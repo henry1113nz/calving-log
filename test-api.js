@@ -88,6 +88,14 @@ async function run() {
   let res = await call('GET', '/api/cows');
   assert('protected APIs reject an unauthenticated request', res.status === 401);
 
+  const malformed = await fetch(BASE + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{"username":'
+  });
+  assert('a malformed JSON body is answered as a client error, not a server fault',
+    malformed.status === 400, );
+
   res = await login('owner', 'incorrect-password');
   assert('login rejects an incorrect password', res.status === 401 && !sessionCookie);
 
@@ -844,6 +852,21 @@ async function run() {
   assert('the owner can review field feedback with participant role context',
     res.status === 200 && res.body.length === 1
       && res.body[0].submitted_by_role === 'owner', JSON.stringify(res.body));
+
+  // 试用任务包含 Ask 页面,反馈就必须能指名这个页面,否则助手的问题会被混进
+  // "整体走查",事后分不清说的是哪个界面。
+  res = await call('POST', '/api/feedback', {
+    area: 'assistant', task_code: 'ask_assistant', completion_status: 'completed',
+    ease_rating: 4, confusing_part: 'I was not sure the draft had not been saved.'
+  });
+  assert('field feedback can name the assistant page and its task',
+    res.status === 201 && res.body.area === 'assistant'
+      && res.body.task_code === 'ask_assistant', JSON.stringify(res.body));
+
+  res = await call('POST', '/api/feedback', {
+    area: 'not_a_page', task_code: 'ask_assistant', completion_status: 'completed', ease_rating: 4
+  });
+  assert('field feedback still rejects an area that is not a page', res.status === 400);
 
   // ------------------------------------------------ role-based authorisation
   heading('Role-based authorisation');

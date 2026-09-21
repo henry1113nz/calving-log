@@ -52,7 +52,7 @@ parts that carry the domain reasoning and can be checked in isolation.
 
 **Migrations, not a schema file.** SQLite cannot add a constraint to an existing table, so
 `migrate.js` holds numbered migrations that rebuild tables (create → copy → drop → rename) and
-records progress in `PRAGMA user_version`. Currently at version 8. Schema changes go in a new
+records progress in `PRAGMA user_version`. Currently at version 9. Schema changes go in a new
 numbered migration; never edit an existing one. `currentVersion()` special-cases pre-migration
 databases (`user_version = 0` but tables already present) by probing for `health_events`.
 

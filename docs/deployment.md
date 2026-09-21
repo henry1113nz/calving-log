@@ -89,7 +89,7 @@ hosting dashboard. It contains no usable credentials and must remain that way.
 After deployment, sign in as each role and confirm that the dashboard, review queue and Field
 feedback page load, ask the supported vat and single-cow questions, change one test account password,
 and confirm that a milker receives a permission message when attempting an
-owner-only action. `GET /api/health` must return `status: ok` and `schema_version: 8`.
+owner-only action. `GET /api/health` must return `status: ok` and `schema_version: 9`.
 
 For the first trial, use demonstration animals only and follow
 [field-testing.md](field-testing.md). The prototype banner is deliberately visible on every

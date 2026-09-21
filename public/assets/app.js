@@ -154,9 +154,16 @@
     `;
     shell.prepend(sidebar);
 
+    let schemaVersion = '';
+    try {
+      schemaVersion = (await requestJson('/api/health')).schema_version;
+    } catch {
+      schemaVersion = '';
+    }
+
     const mobileTopbar = document.createElement('div');
     mobileTopbar.className = 'mobile-topbar';
-    mobileTopbar.innerHTML = `<span class="mobile-brand"><span>CL</span> Calving Log</span><span class="mobile-status">${escapeHtml(currentUser.name)} · v8</span>`;
+    mobileTopbar.innerHTML = `<span class="mobile-brand"><span>CL</span> Calving Log</span><span class="mobile-status">${escapeHtml(currentUser.name)}${schemaVersion ? ` · v${escapeHtml(schemaVersion)}` : ''}</span>`;
     const main = shell.querySelector('.app-main');
     main?.prepend(mobileTopbar);
 

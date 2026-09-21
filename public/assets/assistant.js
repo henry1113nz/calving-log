@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="list-main">
             <p class="list-title">${escapeHtml(formatDate(event.event_date, { short: true }))} · ${escapeHtml(humanize(event.event_type))}${event.drug_name ? ` · ${escapeHtml(event.drug_name)}` : ''}</p>
             <p class="list-detail">${event.withdrawal_end_date
-              ? `Hold through ${escapeHtml(formatDate(event.withdrawal_end_date, { short: true }))}; earliest eligible ${escapeHtml(formatDate(event.eligible_from_date, { short: true }))}${event.days_remaining !== null && event.days_remaining !== undefined ? ` · ${escapeHtml(event.days_remaining)} day(s) left` : ''}.`
+              ? `Hold through ${escapeHtml(formatDate(event.withdrawal_end_date, { short: true }))}; earliest eligible ${escapeHtml(formatDate(event.eligible_from_date, { short: true }))}${event.days_remaining !== null && event.days_remaining !== undefined ? ` · ${escapeHtml(event.days_remaining)} day${event.days_remaining === 1 ? '' : 's'} left` : ''}.`
               : escapeHtml(`No clear date is stored (${humanize(event.withdrawal_status)}).`)}</p>
             ${evidenceLine(event)}
             ${warningList(event.warnings)}

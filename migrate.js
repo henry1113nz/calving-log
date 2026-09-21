@@ -654,6 +654,52 @@ const MIGRATIONS = [
           ON field_feedback(created_at);
       `);
     }
+  },
+  {
+    version: 9,
+    name: 'let field feedback name the assistant page',
+    up: (db) => {
+      // 试用任务已经包含 Ask 页面,但反馈只能挂到别的页面上。参与者只好把助手的
+      // 问题记进"整体走查",事后就分不清那条意见说的是哪一个界面——而助手恰好是
+      // 最新、最需要被质疑的部分。
+      //
+      // SQLite 不能修改已有的 CHECK,所以照例重建表并搬走原有回复。索引跟着表一起
+      // 被删,必须重建。
+      db.exec(`
+        CREATE TABLE field_feedback__new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          area TEXT NOT NULL CHECK (area IN (
+            'dashboard', 'treatments', 'reviews', 'herd', 'dry_off', 'medicines',
+            'assistant', 'overall'
+          )),
+          task_code TEXT NOT NULL CHECK (task_code IN (
+            'find_hold', 'record_treatment', 'record_calving', 'change_schedule',
+            'dry_off_review', 'review_unknown', 'ask_assistant', 'overall_walkthrough'
+          )),
+          completion_status TEXT NOT NULL CHECK (completion_status IN (
+            'completed', 'completed_with_help', 'not_completed'
+          )),
+          ease_rating INTEGER NOT NULL CHECK (ease_rating BETWEEN 1 AND 5),
+          confusing_part TEXT CHECK (confusing_part IS NULL OR length(confusing_part) <= 1000),
+          suggestion TEXT CHECK (suggestion IS NULL OR length(suggestion) <= 1000),
+          submitted_by INTEGER NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO field_feedback__new
+          (id, area, task_code, completion_status, ease_rating, confusing_part,
+           suggestion, submitted_by, created_at)
+          SELECT id, area, task_code, completion_status, ease_rating, confusing_part,
+                 suggestion, submitted_by, created_at
+          FROM field_feedback;
+        DROP TABLE field_feedback;
+        ALTER TABLE field_feedback__new RENAME TO field_feedback;
+
+        CREATE INDEX idx_field_feedback_submitted_by
+          ON field_feedback(submitted_by);
+        CREATE INDEX idx_field_feedback_created_at
+          ON field_feedback(created_at);
+      `);
+    }
   }
 ];
 

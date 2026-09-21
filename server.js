@@ -1472,11 +1472,11 @@ app.post('/api/users', requireRole('owner'), (req, res) => {
 // ---------- field usability feedback ----------
 
 const FEEDBACK_AREAS = new Set([
-  'dashboard', 'treatments', 'reviews', 'herd', 'dry_off', 'medicines', 'overall'
+  'dashboard', 'treatments', 'reviews', 'herd', 'dry_off', 'medicines', 'assistant', 'overall'
 ]);
 const FEEDBACK_TASKS = new Set([
   'find_hold', 'record_treatment', 'record_calving', 'change_schedule',
-  'dry_off_review', 'review_unknown', 'overall_walkthrough'
+  'dry_off_review', 'review_unknown', 'ask_assistant', 'overall_walkthrough'
 ]);
 const FEEDBACK_COMPLETION = new Set([
   'completed', 'completed_with_help', 'not_completed'
@@ -1683,6 +1683,14 @@ app.post('/api/decisions', requireRole('owner', 'vet'), (req, res) => {
 // ---------- 全局错误处理 ----------
 
 app.use((err, req, res, next) => {
+  // 请求体解析失败是调用方发错了东西。返回 500 会让人以为系统坏了,也会把这类
+  // 噪音混进真正需要排查的错误日志里。
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Request body is not valid JSON' });
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request body is too large' });
+  }
   console.error(err);
   res.status(500).json({ error: 'Something went wrong on the server' });
 });
