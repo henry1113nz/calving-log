@@ -14,19 +14,24 @@
         <div>
           <p class="eyebrow">Read-only assistant</p>
           <h1 class="page-title">Ask CalvingLog</h1>
-          <p class="page-subtitle">Ask for today's vat-exclusion list in everyday language. The database and deterministic calculator remain authoritative.</p>
+          <p class="page-subtitle">Ask about today's vat list or one cow in everyday language, or say what happened and confirm the draft. The database and deterministic calculator remain authoritative.</p>
         </div>
       </header>
       <main class="page-content stack">
-        <p class="notice warning"><strong>Safety boundary:</strong> The assistant cannot calculate a new withholding period, approve milk release, change a record or replace veterinary and farm instructions.</p>
+        <p class="notice warning"><strong>Safety boundary:</strong> The assistant cannot calculate a withholding period, choose a medicine or regimen, approve milk release, or save anything without your confirmation.</p>
         <div class="grid grid-2">
           <section class="card">
-            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle">Current supported intent: today's cows that must remain out of the vat.</p></div></div>
+            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle">Supported: today's vat list, one cow's recorded hold, and a calving you want recorded.</p></div></div>
             <form id="assistant-form">
               <div class="field">
-                <label for="assistant-question">Question</label>
+                <label for="assistant-question">Question or statement</label>
                 <textarea id="assistant-question" maxlength="500" required placeholder="Which cows must stay out of the vat today?"></textarea>
-                <span class="hint">Do not enter personal information. The external model, when configured, receives only this question and never receives farm records.</span>
+                <span class="hint">Do not enter personal information. The external model, when configured, receives only this text and never receives farm records.</span>
+              </div>
+              <div class="list-meta" id="assistant-examples">
+                <button class="text-button" type="button" data-example="Which cows must stay out of the vat today?">Today's vat list</button>
+                <button class="text-button" type="button" data-example="Why is cow 212 on hold?">Explain one cow</button>
+                <button class="text-button" type="button" data-example="Cow 212 calved today">Record a calving</button>
               </div>
               <div class="form-actions"><button class="btn" id="assistant-submit" type="submit">Ask</button></div>
             </form>
@@ -35,16 +40,17 @@
           <aside class="card soft">
             <div class="card-head"><div><h2 class="card-title">How the answer is produced</h2></div></div>
             <ol class="test-task-list">
-              <li>The assistant classifies the question into one allowed read-only intent.</li>
-              <li>The server runs the existing authenticated vat-exclusion query.</li>
-              <li>Unknown dates remain on hold and appear as needing human review.</li>
-              <li>The assistant displays stored results; it never invents a safe date.</li>
+              <li>The assistant classifies the text into one allowed intent. It never supplies a cow, a date, a medicine or a number.</li>
+              <li>The server resolves the cow tag and date against the database, and asks when either is missing or ambiguous.</li>
+              <li>Answers about a hold are read from the stored event snapshot, including the label revision and milking schedule that produced it.</li>
+              <li>A stated event becomes a draft only. Confirming it saves through the normal treatment route, with the same role checks, validation and audit trail.</li>
+              <li>Unknown clear dates stay on hold and are shown as needing a person.</li>
             </ol>
           </aside>
         </div>
         <section class="card">
           <div class="card-head"><div><h2 class="card-title">Answer</h2><p class="card-subtitle">Every result identifies its deterministic database source and assistant mode.</p></div></div>
-          <div id="assistant-result" class="empty-state"><strong>No question asked yet</strong><span>Try: “Which cows are on hold today?” or “今天哪些牛的奶不能进奶罐？”</span></div>
+          <div id="assistant-result" class="empty-state"><strong>No question asked yet</strong><span>Try “Which cows are on hold today?”, “When can cow 212 go back in the vat?”, or “Cow 212 calved today”.</span></div>
         </section>
       </main>
     </div>

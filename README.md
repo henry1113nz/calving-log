@@ -69,7 +69,8 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 - Backend: Node.js + Express
 - Database: SQLite via better-sqlite3, with versioned migrations
 - Frontend: HTML / CSS / JavaScript, no build step
-- AI layer: constrained read-only intent classification through the OpenAI Responses API when configured, with a local fallback
+- AI layer: constrained intent classification through the OpenAI Responses API when configured,
+  with a local fallback; the server resolves every entity and performs every calculation
 
 ## Project layout
 
@@ -85,12 +86,12 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 | `dryOffAdvisor.js` | dry-off treatment selection criteria (pure logic) |
 | `verify-db.js` | database constraint verification |
 | `test-api.js` | API endpoint tests |
-| `assistant.js` | constrained local/OpenAI intent classification; never performs the safety calculation |
-| `public/*.html` | login, dashboard, events, reviews, herd, dry-off, medicines, assistant, feedback and account pages |
+| `assistant.js` | constrained local/OpenAI intent classification; never performs the safety calculation, and never supplies a cow, date or medicine |
+| `public/*.html` | login, dashboard, events, reviews, herd, dry-off, medicines, assistant, feedback and account pages (the owner creates trial sign-ins on Account) |
 | `public/assets/` | shared responsive styles and page-specific browser logic |
 | `docs/schema.md` | database design and rationale |
 | `docs/deployment.md` | production configuration, backup and restore drill |
-| `docs/ai-interface.md` | safety boundary for the planned language interface |
+| `docs/ai-interface.md` | implemented language interface and its safety boundary |
 
 ## Status
 
@@ -117,13 +118,16 @@ cases enter a review queue and remain visible through accountable resolution.
 
 The front end is split into nine focused, responsive operational pages instead of one crowded
 screen: the daily dashboard, treatment/events entry, accountable reviews, herd records,
-evidence-based dry-off decisions, medicines/reference control, a read-only natural-language
-assistant, structured field feedback, and account security.
-It shows verification and
+evidence-based dry-off decisions, medicines/reference control, a constrained natural-language
+assistant, structured field feedback, and account security. It shows verification and
 attention states, handles an unknown clear date safely, supports regimen selection where
 required, exposes correction history, explains role restrictions, and lets all roles submit
-usability feedback while limiting the response history to the owner. The first natural-language
-vertical slice answers only today's vat-exclusion question and returns the same deterministic
-rows as the existing API. External OpenAI intent classification is optional; without a key the
-same narrow use case remains available through a local matcher. See
+usability feedback while limiting the response history to the owner.
+
+The natural-language page now covers three constrained intents: today's vat-exclusion list,
+an explanation of one cow's recorded hold read back from the stored event snapshot, and a calving draft that writes nothing until a person
+confirms it through the ordinary event route. The model only classifies the wording; the server
+resolves the cow and the date, asks when either is missing, and refuses to choose a medicine,
+a regimen or a withholding period. External OpenAI intent classification is optional; without a
+key the same intents remain available through a local matcher. See
 [docs/ai-interface.md](docs/ai-interface.md).

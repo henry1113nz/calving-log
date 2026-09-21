@@ -14,6 +14,26 @@ correctly explain a milk-hold result without coaching.
 - Do not enter a farm owner's identity or real clinical details in the feedback comments.
 - Stop the task if the participant starts treating the prototype as a real release decision.
 
+## Handing the site to a supervisor or a farm
+
+The deployed prototype is the only thing a participant needs; nothing is installed on a phone.
+
+1. Send the address and say plainly what it is: a student prototype for a supervised usability
+   trial, holding demonstration animals only, which must not be used on its own to release milk.
+2. Do not share the owner password. As Owner, open **Account → Sign-ins for field testing** and
+   create one relief-milker sign-in per participant, named by role — “Farm participant 1”, not a
+   person's name. A relief milker can record events and submit feedback, but cannot verify a
+   medicine, change the milking schedule, correct history or make a final dry-off decision.
+3. Hand the temporary password over in person and ask the participant to change it on the same
+   page. Remove or rename the sign-in when the trial round is finished.
+4. Take a backup of the deployed database before the first session, using the procedure in
+   [deployment.md](deployment.md), so a round of test entries can be rolled back.
+5. Tell the participant what is recorded: the page, the task, whether it was completed, an ease
+   rating from 1 to 5 and their comments, stored against their trial sign-in. No age, contact
+   details or farm identifiers are collected, and they can stop at any point.
+6. After the session, sign in as Owner and read the response summary on **Feedback**. That
+   summary, not a verbal impression, is the evidence for the next round of UI changes.
+
 ## 15-minute session
 
 1. Say: “This is a student prototype. Please think aloud. I am testing the screen, not you.”
@@ -23,7 +43,9 @@ correctly explain a milk-hold result without coaching.
    - explain **Hold through**, **Eligible from**, **Predicted**, and **Unknown**;
    - find why an unresolved dry-cow event is in Reviews;
    - schedule a future change from TAD to OAD;
-   - optionally review one dry-off decision using SCC evidence.
+   - optionally review one dry-off decision using SCC evidence;
+   - optionally, on **Ask**, request today's excluded cows, ask why one cow is on hold, and say
+     that a cow calved today, then check the draft before confirming it.
 3. Observe task completion, wrong turns and questions. Do not teach until the person is stuck.
 4. Open **Feedback**, record one response for each task, and ask one final question:
    “What is the first thing you would change?”

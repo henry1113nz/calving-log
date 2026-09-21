@@ -4,20 +4,43 @@ Natural language is an input convenience, not a source of withholding instructio
 The existing structured API, verified ACVM reference revision and deterministic calculator
 remain authoritative.
 
-The first implemented vertical slice is `POST /api/assistant/query` and the separate
-`/assistant.html` page. It supports one read-only intent: asking which cows must stay out of
-the vat today. The returned rows come from the same server-side query as
-`GET /api/vat-exclusions`.
+`POST /api/assistant/query` and the `/assistant.html` page implement three read-only or
+draft-only intents. Every answer is produced by the same server-side queries and stored
+snapshots that the rest of the application uses.
 
-## Allowed use cases
+## Implemented use cases
 
-1. **Retrieve records (implemented for today's vat list)** — for example, “Which cows must stay
-   out of the vat today?” The model may classify the request, but the server runs the existing
-   read-only query and returns its structured data.
-2. **Draft a structured record (future)** — for example, “Cow 212 calved today.” The model may fill a
-   preview form, but the user must confirm the cow, date and event type before submission.
-3. **Explain an existing result (future)** — the model may restate the stored rule, label revision,
-   schedule snapshot and reason already returned by the API.
+1. **Retrieve records** — “Which cows must stay out of the vat today?” The rows come from the
+   same server-side query as `GET /api/vat-exclusions`, including the cows whose clear date is
+   unknown.
+2. **Explain an existing result** — “Why is cow 212 on hold?” The reply restates what is already
+   stored on the event: the applied rule, the ACVM registration and label revision, the days
+   applied, the milkings-per-day snapshot, the calving date and whether it is predicted or
+   actual. Nothing is recalculated, so the explanation cannot disagree with the daily list.
+3. **Draft a structured record** — “Cow 212 calved today.” The assistant returns a draft and
+   writes nothing. Confirming it sends the draft through the ordinary `POST /api/events` route,
+   so the signed-in user is the actor and the normal validation, review queue, snapshot and audit
+   trail all apply.
+
+## What the model is allowed to do
+
+The model classifies the wording into one intent: `vat_exclusions_today`, `cow_status`,
+`draft_event` or `unsupported`. That is its entire contribution.
+
+Entities are resolved by the server, not by the model:
+
+- a cow is matched against the tag numbers that exist in the database, never parsed out of the
+  sentence as a new value; an unknown or ambiguous tag is asked about instead;
+- a date is accepted only as `today`, `yesterday` or `YYYY-MM-DD`, is validated, and is rejected
+  when it is in the future;
+- a medicine, a treatment regimen and a withholding period are never chosen. Treatment wording
+  produces a draft with those fields deliberately blank and a pointer to the Treatments page.
+
+Farm records, ACVM label data and calculated dates are never sent to the model. When both
+`OPENAI_API_KEY` and `OPENAI_MODEL` are configured, the server sends only the user's question to
+the OpenAI Responses API and requires one of the four structured intents. Otherwise a deliberately
+narrow English/Chinese local matcher is used, and the response says which mode produced the
+classification.
 
 ## Prohibited behaviour
 
@@ -27,19 +50,19 @@ the vat today. The returned rows come from the same server-side query as
 - It must never create an owner/vet-only correction, medicine verification, farm-setting change
   or final dry-off decision without the signed-in role and normal server validation.
 - It must not use general internet text as a substitute for the versioned ACVM Approved Label.
+- It must not save anything. Only a person confirming a draft writes a record.
 
-## Implemented request flow
+## Request flow
 
-`user wording → one allowed intent or unsupported → existing authenticated vat query
-→ deterministic database result`
+`user wording → one allowed intent or unsupported → server-side entity resolution
+→ existing authenticated query or a draft for confirmation → deterministic database result`
 
-When both `OPENAI_API_KEY` and `OPENAI_MODEL` are configured, the server sends only the user's
-question to the OpenAI Responses API and requires one of two structured intents. Farm records,
-ACVM label data and calculated dates are not sent to the model. If external classification is
-not configured or is unavailable, a deliberately narrow English/Chinese local matcher is used
-and the response identifies that mode.
+If a required fact is missing or ambiguous, the reply asks for it rather than choosing a value.
+The model output itself is never written as a clear date.
 
-If a required fact is missing or ambiguous, the preview must ask for it. The model output itself
-is never written as a clear date. Every committed record uses the session user as its actor and
-passes through the same role checks, database constraints, review queue and audit trail as the
-manual UI. Write actions remain future work and are not exposed by the assistant endpoint.
+## Still future work
+
+- Drafting a treatment, dry-off or SCC record, which would require a person to select the
+  medicine and regimen inside the preview before anything could be confirmed.
+- Explaining a dry-off recommendation or a correction history in the same restated form.
+- Any bulk or multi-cow write, which is not planned for the prototype.

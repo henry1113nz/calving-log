@@ -11,9 +11,9 @@
   <div class="app-shell">
     <div class="app-main">
       <header class="page-header">
-        <div><p class="eyebrow">Identity and security</p><h1 class="page-title">Account</h1><p class="page-subtitle">Review the signed-in identity and change this account's password.</p></div>
+        <div><p class="eyebrow">Identity and security</p><h1 class="page-title">Account</h1><p class="page-subtitle">Review the signed-in identity, change this account's password, and give trial participants their own sign-in.</p></div>
       </header>
-      <main class="page-content">
+      <main class="page-content stack">
         <div class="grid grid-2">
           <section class="card">
             <div class="card-head"><div><h2 class="card-title">Signed-in account</h2><p class="card-subtitle">Treatments, corrections and decisions use this server-side identity.</p></div></div>
@@ -32,6 +32,28 @@
             <div id="password-notice" style="margin-top:14px" hidden></div>
           </section>
         </div>
+
+        <section class="card" id="people-card" hidden>
+          <div class="card-head"><div><h2 class="card-title">Sign-ins for field testing</h2><p class="card-subtitle">Owner only. Give each trial participant a relief-milker sign-in instead of sharing the owner password.</p></div></div>
+          <p class="notice info">A relief milker can record events and give feedback, but cannot verify a medicine, change the milking schedule, correct history or make a final dry-off decision. Use a role name such as “Farm participant 1”; do not enter a participant's real name or contact details.</p>
+          <form id="people-form">
+            <div class="form-grid">
+              <div class="field"><label for="person-name">Display name</label><input id="person-name" type="text" maxlength="60" required placeholder="Farm participant 1"></div>
+              <div class="field"><label for="person-username">Username</label><input id="person-username" type="text" maxlength="40" required placeholder="farm1"><span class="hint">3–40 letters, numbers, dots, underscores or hyphens.</span></div>
+              <div class="field"><label for="person-role">Role</label>
+                <select id="person-role">
+                  <option value="milker">Relief milker</option>
+                  <option value="vet">Farm vet</option>
+                  <option value="owner">Farm owner</option>
+                </select>
+              </div>
+              <div class="field"><label for="person-password">Temporary password</label><input id="person-password" type="password" autocomplete="new-password" minlength="12" required><span class="hint">At least 12 characters. Hand it over in person and ask them to change it on this page.</span></div>
+            </div>
+            <div class="form-actions"><button class="btn" id="people-submit" type="submit">Create sign-in</button></div>
+          </form>
+          <div id="people-notice" style="margin-top:14px" hidden></div>
+          <div id="people-list" class="loading" style="margin-top:16px">Loading sign-ins…</div>
+        </section>
       </main>
     </div>
   </div>

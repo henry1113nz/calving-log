@@ -564,6 +564,96 @@ async function run() {
   res = await call('POST', '/api/assistant/query', { question: '' });
   assert('the assistant rejects an empty question', res.status === 400);
 
+  // 第二、三个用例:解释一头牛已经存下来的结果,以及生成一份要人确认的草稿。
+  // 两者都不准自己算日期——错在这里,看起来就是一条正常记录。
+  const assistantCow = (await call('POST', '/api/cows', {
+    tag_number: '811', lactation_number: 4
+  })).body;
+
+  res = await call('POST', '/api/assistant/query', { question: 'Why is cow 811 on hold?' });
+  assert('a cow with no stored hold is reported as having none, not cleared by inference',
+    res.status === 200 && res.body.intent === 'cow_status' && res.body.resolved === true
+      && res.body.on_hold_today === false && res.body.events.length === 0
+      && /other animal-health and farm holds/i.test(res.body.message),
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/assistant/query', { question: 'Why is cow 8888 on hold?' });
+  assert('an unknown tag is asked about instead of matched to the nearest cow',
+    res.status === 200 && res.body.resolved === false
+      && /no cow is recorded with tag 8888/i.test(res.body.message),
+    JSON.stringify(res.body));
+
+  // 干奶治疗还没有产犊日期,就算不出解除日。解释必须把这件事说出来。
+  const assistantDryOff = (await call('POST', '/api/events', {
+    cow_id: assistantCow.id, event_type: 'dry_off', event_date: '2026-05-01',
+    drug_id: dryCowDrug.id
+  })).body;
+  assert('the dry-cow record starts without an authoritative clear date',
+    assistantDryOff.withdrawal_end_date === null
+      && assistantDryOff.withdrawal_status === 'awaiting_calving_date',
+    JSON.stringify(assistantDryOff));
+
+  res = await call('POST', '/api/assistant/query', {
+    question: 'When can cow 811 go back in the vat?'
+  });
+  assert('an unknown clear date is explained as a hold that needs a person',
+    res.body.requires_attention === true && res.body.on_hold_today === true
+      && res.body.events[0].withdrawal_end_date === null
+      && res.body.events[0].warnings.length > 0,
+    JSON.stringify(res.body));
+  assert('the explanation identifies the stored snapshot as its only basis',
+    res.body.explanation_basis === 'stored_event_snapshot'
+      && res.body.source === 'deterministic_database_query',
+    JSON.stringify(res.body));
+
+  const eventsBeforeDraft = (await call('GET', '/api/events')).body.length;
+  res = await call('POST', '/api/assistant/query', { question: 'Cow 811 calved today' });
+  const calvingDraft = res.body;
+  assert('a stated calving becomes a draft the person still has to confirm',
+    calvingDraft.intent === 'draft_event' && calvingDraft.record_written === false
+      && calvingDraft.can_confirm === true && calvingDraft.event_type === 'calving'
+      && calvingDraft.confirm_with.url === '/api/events',
+    JSON.stringify(calvingDraft));
+  assert('preparing a draft writes nothing to the database',
+    (await call('GET', '/api/events')).body.length === eventsBeforeDraft);
+
+  res = await call('POST', '/api/assistant/query', { question: 'Cow 811 calved' });
+  assert('a missing date is asked for instead of assumed to be today',
+    res.body.can_confirm === false && res.body.questions.some(item => /date/i.test(item)),
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/assistant/query', {
+    question: 'Cow 811 was treated for mastitis today'
+  });
+  assert('the assistant refuses to pick the medicine or the regimen for a treatment',
+    res.body.can_confirm === false && res.body.event_type === 'treatment'
+      && res.body.blocked_fields.includes('drug_id')
+      && res.body.blocked_fields.includes('drug_rule_id')
+      && !Object.hasOwn(res.body, 'confirm_with'),
+    JSON.stringify(res.body));
+
+  // 确认草稿走的仍然是 POST /api/events,所以产犊对账、快照和审计照常发生。
+  const assistantToday = new Date().toISOString().split('T')[0];
+  res = await call(
+    calvingDraft.confirm_with.method, calvingDraft.confirm_with.url, calvingDraft.confirm_with.body
+  );
+  assert('confirming a draft records the calving through the existing write path',
+    res.status === 201 && res.body.event_type === 'calving'
+      && res.body.calving_date_source === 'actual' && res.body.calving_date === assistantToday,
+    JSON.stringify(res.body));
+  assert('the confirmed calving reconciles the dry-cow record that was waiting for it',
+    res.body.reconciled_dry_off_events.length === 1,
+    JSON.stringify(res.body.reconciled_dry_off_events));
+
+  res = await call('POST', '/api/assistant/query', { question: 'Why is cow 811 on hold?' });
+  const explained = res.body.events.find(event => event.id === assistantDryOff.id);
+  assert('the explanation now carries the stored clear date and the label evidence behind it',
+    explained.withdrawal_end_date === addDays(assistantToday, dryCowDays)
+      && explained.eligible_from_date === addDays(assistantToday, dryCowDays + 1)
+      && Boolean(explained.acvm_registration_no)
+      && explained.milkings_per_day_applied === 2,
+    JSON.stringify(explained));
+
   // ------------------------------------------------------ drug data verification
   heading('Versioned and verified ACVM reference data');
 

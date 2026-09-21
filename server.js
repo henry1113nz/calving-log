@@ -994,6 +994,46 @@ app.delete('/api/events/:id', requireRole('owner', 'vet'), (req, res) => {
 
 // ---------- vat exclusions (today's "don't milk these into the vat" list) ----------
 
+// 同一条记录在每日清单和助手页上必须给出同一段警告文字。解释分了家,挤奶工就会
+// 按自己看到的那一版判断,而两版里总有一版是旧的。
+// 未解决的记录必须自己说明为什么解除不了。清单和助手用同一句话,人才不会以为
+// 这是两回事。
+function unresolvedHoldWarning(row) {
+  if (row.withdrawal_status === 'awaiting_calving_date') {
+    return 'No calving date is recorded for this dry-cow treatment. Record the actual ' +
+      'calving before any milk enters the vat.';
+  }
+  if (row.withdrawal_status === 'minimum_dry_period_breached') {
+    return 'This is a legacy unresolved early-calving record. Recalculate it against ' +
+      'the current approved label before milk enters the vat.';
+  }
+  return `No authoritative clear date is stored for ${row.drug_name || 'this event'}. ` +
+    'Keep this cow out of the vat until the treatment details are reviewed.';
+}
+
+function calculatedHoldWarnings(row) {
+  const warnings = [];
+  if (row.calving_date_source === 'predicted') {
+    warnings.push(
+      `Clear date is based on an expected calving date of ${row.calving_date}. ` +
+      'It will be recalculated when the actual calving is recorded.'
+    );
+  }
+  if (row.drug_name && !row.drug_verified_on) {
+    warnings.push(
+      `The withholding period recorded for ${row.drug_name} has not been verified ` +
+      'against the ACVM register.'
+    );
+  }
+  if (row.drug_name && !row.drug_reference_revision_id) {
+    warnings.push(
+      'This event predates versioned ACVM references. Review the stored clear date ' +
+      'before relying on it.'
+    );
+  }
+  return warnings;
+}
+
 function vatExclusions(today = new Date().toISOString().split('T')[0]) {
 
   const exclusions = db.prepare(`
@@ -1021,25 +1061,7 @@ function vatExclusions(today = new Date().toISOString().split('T')[0]) {
   const withDaysRemaining = exclusions.map(row => {
     // 解除日建立在预测产犊日期上时,它只是个估计:牛提前产犊,这个日期就不成立。
     // 挤奶工必须看得出哪些日期是确定的、哪些不是,否则他们会一视同仁地相信。
-    const warnings = [];
-    if (row.calving_date_source === 'predicted') {
-      warnings.push(
-        `Clear date is based on an expected calving date of ${row.calving_date}. ` +
-        'It will be recalculated when the actual calving is recorded.'
-      );
-    }
-    if (row.drug_name && !row.drug_verified_on) {
-      warnings.push(
-        `The withholding period recorded for ${row.drug_name} has not been verified ` +
-        'against the ACVM register.'
-      );
-    }
-    if (row.drug_name && !row.drug_reference_revision_id) {
-      warnings.push(
-        'This event predates versioned ACVM references. Review the stored clear date ' +
-        'before relying on it.'
-      );
-    }
+    const warnings = calculatedHoldWarnings(row);
 
     return {
       ...row,
@@ -1081,16 +1103,7 @@ function vatExclusions(today = new Date().toISOString().split('T')[0]) {
     days_remaining: null,
     is_estimate: false,
     requires_attention: true,
-    warnings: [
-      row.withdrawal_status === 'awaiting_calving_date'
-        ? 'No calving date is recorded for this dry-cow treatment. Record the actual ' +
-          'calving before any milk enters the vat.'
-        : (row.withdrawal_status === 'minimum_dry_period_breached'
-          ? 'This is a legacy unresolved early-calving record. Recalculate it against ' +
-            'the current approved label before milk enters the vat.'
-          : `No authoritative clear date is stored for ${row.drug_name || 'this event'}. ` +
-            'Keep this cow out of the vat until the treatment details are reviewed.')
-    ]
+    warnings: [unresolvedHoldWarning(row)]
   }));
 
   // 需要处理的排在前面:没有解除日的牛比"还有三天"的牛更需要有人去看一眼。
@@ -1101,6 +1114,235 @@ app.get('/api/vat-exclusions', (req, res) => {
   res.json(vatExclusions());
 });
 
+// ---------- constrained natural-language assistant ----------
+
+// 牛号和日期一律在服务器这边自己解析,不让模型提供任何实体。模型把耳号听错一位、
+// 把日期说早一天,做出来的草稿看上去一样合理,而错的是奶能不能进罐这件事。
+const ASSISTANT_TODAY_WORDS = /(today|tonight|this morning|今天|今日|今早)/i;
+const ASSISTANT_YESTERDAY_WORDS = /(yesterday|last night|昨天|昨日|昨晚)/i;
+const ASSISTANT_CALVING_WORDS = /(calv|gave birth|产犊|生了|下犊|生犊)/i;
+const ASSISTANT_TREATMENT_WORDS = /(treat|antibiotic|mastitis|dry ?cow|打针|治疗|用药|乳房炎|干奶)/i;
+
+// 只认数据库里真实存在的耳号。从句子里"猜"一个号码出来,等于给另一头牛建记录。
+function assistantCowReference(question) {
+  const tokens = String(question).toLowerCase().match(/[a-z0-9]+/g) || [];
+  const cows = db.prepare('SELECT id, tag_number, status FROM cows').all();
+  const matched = cows.filter(cow => tokens.includes(String(cow.tag_number).toLowerCase()));
+
+  if (matched.length === 1) return { cow: matched[0], question: null };
+  if (matched.length > 1) {
+    return {
+      cow: null,
+      question: `More than one cow tag appears in this question (${matched.map(cow => cow.tag_number).join(', ')}). Ask about one cow at a time.`
+    };
+  }
+  const numeric = tokens.filter(token => /\d/.test(token));
+  if (numeric.length) {
+    return {
+      cow: null,
+      question: `No cow is recorded with tag ${numeric.join(' or ')}. Check the tag on the Herd page.`
+    };
+  }
+  return { cow: null, question: 'Name the cow by her tag number, for example "cow 212".' };
+}
+
+// 日期只接受说得死的三种写法。"上周""前几天"这类含糊说法宁可回问,也不替人取整。
+function assistantDateReference(question, today) {
+  const explicit = String(question).match(/(\d{4}-\d{2}-\d{2})/);
+  if (explicit) {
+    if (!canonicalDate(explicit[1])) {
+      return { date: null, question: `${explicit[1]} is not a valid calendar date. Use YYYY-MM-DD.` };
+    }
+    if (explicit[1] > today) {
+      return { date: null, question: `${explicit[1]} is in the future. Record an event after it has happened.` };
+    }
+    return { date: explicit[1], question: null };
+  }
+  if (ASSISTANT_YESTERDAY_WORDS.test(question)) return { date: addDays(today, -1), question: null };
+  if (ASSISTANT_TODAY_WORDS.test(question)) return { date: today, question: null };
+  return { date: null, question: 'Give the date as "today", "yesterday" or YYYY-MM-DD.' };
+}
+
+function assistantScheduleSnapshot(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// 解释一头牛的状态时,每个字段都是从事件快照里读出来的,没有任何一处重新计算。
+// 重算会让解释和每日清单对不上,而人会相信后看到的那一个。
+function assistantCowStatus(question, today = new Date().toISOString().split('T')[0]) {
+  const reference = assistantCowReference(question);
+  if (!reference.cow) {
+    return { supported: true, resolved: false, message: reference.question, questions: [reference.question] };
+  }
+
+  const rows = db.prepare(`
+    SELECT
+      health_events.id,
+      health_events.event_type,
+      health_events.event_date,
+      health_events.calving_date,
+      health_events.calving_date_source,
+      health_events.withdrawal_days_applied,
+      health_events.withdrawal_end_date,
+      health_events.withdrawal_status,
+      health_events.milkings_per_day_applied,
+      health_events.milking_schedule_snapshot,
+      health_events.drug_reference_revision_id,
+      drugs.drug_name,
+      drugs.verified_on AS drug_verified_on,
+      drug_withdrawal_rules.rule_name AS drug_rule_name,
+      drug_reference_revisions.acvm_registration_no,
+      drug_reference_revisions.label_revision
+    FROM health_events
+    LEFT JOIN drugs ON health_events.drug_id = drugs.id
+    LEFT JOIN drug_withdrawal_rules ON health_events.drug_rule_id = drug_withdrawal_rules.id
+    LEFT JOIN drug_reference_revisions
+      ON health_events.drug_reference_revision_id = drug_reference_revisions.id
+    WHERE health_events.cow_id = ? AND health_events.deleted_at IS NULL
+    ORDER BY health_events.event_date DESC, health_events.id DESC
+    LIMIT 10
+  `).all(reference.cow.id);
+
+  const events = rows.map(row => {
+    const requiresAttention = REVIEW_STATUSES.has(row.withdrawal_status);
+    const onHoldToday = Boolean(row.withdrawal_end_date && row.withdrawal_end_date >= today);
+    return {
+      ...row,
+      milking_schedule_snapshot: assistantScheduleSnapshot(row.milking_schedule_snapshot),
+      eligible_from_date: row.withdrawal_end_date ? addDays(row.withdrawal_end_date, 1) : null,
+      days_remaining: onHoldToday
+        ? Math.ceil((new Date(row.withdrawal_end_date) - new Date(today)) / (1000 * 60 * 60 * 24))
+        : null,
+      on_hold_today: onHoldToday,
+      requires_attention: requiresAttention,
+      is_estimate: row.calving_date_source === 'predicted',
+      warnings: requiresAttention ? [unresolvedHoldWarning(row)] : calculatedHoldWarnings(row)
+    };
+  });
+
+  const unresolved = events.filter(event => event.requires_attention);
+  const holds = events.filter(event => event.on_hold_today);
+  const latestHold = holds.reduce(
+    (latest, event) => (!latest || event.withdrawal_end_date > latest.withdrawal_end_date ? event : latest),
+    null
+  );
+
+  let message;
+  if (unresolved.length) {
+    message = `Cow ${reference.cow.tag_number} must stay out of the vat. ` +
+      `${unresolved.length} record${unresolved.length === 1 ? '' : 's'} ` +
+      'cannot be cleared automatically and need human review.';
+  } else if (latestHold) {
+    message = `Cow ${reference.cow.tag_number} is on hold through ${latestHold.withdrawal_end_date}. ` +
+      `The earliest eligible date is ${latestHold.eligible_from_date} if no other hold applies.` +
+      (holds.some(event => event.is_estimate)
+        ? ' At least one clear date still rests on an expected calving date.'
+        : '');
+  } else {
+    message = `No medicine hold is stored for cow ${reference.cow.tag_number} today. ` +
+      'Other animal-health and farm holds must still be checked.';
+  }
+
+  return {
+    supported: true,
+    resolved: true,
+    source: 'deterministic_database_query',
+    explanation_basis: 'stored_event_snapshot',
+    cow: reference.cow,
+    on_hold_today: holds.length > 0 || unresolved.length > 0,
+    requires_attention: unresolved.length > 0,
+    message,
+    events
+  };
+}
+
+// 草稿永远只是草稿:这个函数不写库。真正写库仍然走 POST /api/events,那条路上的
+// 角色检查、字段校验、快照和审计一个都不能绕过。
+function assistantEventDraft(question, today = new Date().toISOString().split('T')[0]) {
+  const reference = assistantCowReference(question);
+  const date = assistantDateReference(question, today);
+  const mentionsCalving = ASSISTANT_CALVING_WORDS.test(question);
+  const mentionsTreatment = ASSISTANT_TREATMENT_WORDS.test(question);
+  const questions = [];
+  if (!reference.cow) questions.push(reference.question);
+  if (!date.date) questions.push(date.question);
+  if (mentionsCalving && mentionsTreatment) {
+    questions.push('This sentence mentions both a calving and a treatment. Record them as two separate events.');
+  }
+
+  const base = {
+    supported: true,
+    record_written: false,
+    source: 'draft_only_no_record_written',
+    cow: reference.cow,
+    event_date: date.date
+  };
+
+  if (questions.length) {
+    return {
+      ...base,
+      resolved: false,
+      can_confirm: false,
+      questions,
+      message: 'The assistant needs one more detail before it can prepare a draft. Nothing has been saved.'
+    };
+  }
+
+  // 药品和疗程只能由人来选。药选错一种,或者把 Orbenin 的疗程猜错一个,算出来的
+  // 解除日会早于真正的停药期,而清单上看不出任何异常。
+  if (mentionsTreatment) {
+    return {
+      ...base,
+      resolved: true,
+      can_confirm: false,
+      event_type: 'treatment',
+      blocked_fields: ['drug_id', 'drug_rule_id'],
+      questions: [],
+      message: `Cow ${reference.cow.tag_number} on ${date.date}: the assistant will not choose the medicine, ` +
+        'the treatment regimen or the withholding period. Open Treatments and complete the record there.',
+      next_step: { label: 'Open Treatments', href: '/events.html' }
+    };
+  }
+
+  return {
+    ...base,
+    resolved: true,
+    can_confirm: true,
+    event_type: 'calving',
+    questions: [],
+    message: `Draft only — nothing has been saved yet. Confirm to record that cow ${reference.cow.tag_number} ` +
+      `calved on ${date.date}. Recording an actual calving recalculates dry-cow holds that were based ` +
+      'on an expected calving date.',
+    confirm_with: {
+      method: 'POST',
+      url: '/api/events',
+      body: { cow_id: reference.cow.id, event_type: 'calving', event_date: date.date }
+    }
+  };
+}
+
+function assistantVatAnswer() {
+  const rows = vatExclusions();
+  const unresolvedCount = rows.filter(row => row.requires_attention || !row.withdrawal_end_date).length;
+  return {
+    supported: true,
+    source: 'deterministic_database_query',
+    count: rows.length,
+    unresolved_count: unresolvedCount,
+    message: rows.length
+      ? `${rows.length} cow${rows.length === 1 ? '' : 's'} must stay out of the vat today. ` +
+        `${unresolvedCount} record${unresolvedCount === 1 ? ' still needs' : 's still need'} human review.`
+      : 'No medicine holds are listed today. Other animal-health and farm holds must still be checked.',
+    rows
+  };
+}
+
 app.post('/api/assistant/query', async (req, res) => {
   const question = String(req.body?.question || '').trim();
   if (!question) return res.status(400).json({ error: 'Enter a question' });
@@ -1109,29 +1351,28 @@ app.post('/api/assistant/query', async (req, res) => {
   }
 
   const classification = await classifyIntent(question);
-  if (classification.intent !== 'vat_exclusions_today') {
-    return res.json({
-      supported: false,
-      assistant_mode: classification.mode,
-      notice: classification.notice,
-      message: 'This prototype only answers which cows must stay out of the vat today.'
-    });
+  const envelope = {
+    intent: classification.intent,
+    assistant_mode: classification.mode,
+    notice: classification.notice
+  };
+
+  if (classification.intent === 'vat_exclusions_today') {
+    return res.json({ ...envelope, ...assistantVatAnswer() });
+  }
+  if (classification.intent === 'cow_status') {
+    return res.json({ ...envelope, ...assistantCowStatus(question) });
+  }
+  if (classification.intent === 'draft_event') {
+    return res.json({ ...envelope, ...assistantEventDraft(question) });
   }
 
-  const rows = vatExclusions();
-  const unresolvedCount = rows.filter(row => row.requires_attention || !row.withdrawal_end_date).length;
-  res.json({
-    supported: true,
-    assistant_mode: classification.mode,
-    notice: classification.notice,
-    source: 'deterministic_database_query',
-    count: rows.length,
-    unresolved_count: unresolvedCount,
-    message: rows.length
-      ? `${rows.length} cow${rows.length === 1 ? '' : 's'} must stay out of the vat today. ` +
-        `${unresolvedCount} record${unresolvedCount === 1 ? '' : 's'} still need human review.`
-      : 'No medicine holds are listed today. Other animal-health and farm holds must still be checked.',
-    rows
+  return res.json({
+    ...envelope,
+    supported: false,
+    message: "This prototype answers today's vat-exclusion question, explains one cow's recorded hold, " +
+      'and prepares a calving record for a person to confirm. It does not diagnose, advise on ' +
+      'treatment or release milk.'
   });
 });
 

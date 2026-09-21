@@ -52,7 +52,7 @@ parts that carry the domain reasoning and can be checked in isolation.
 
 **Migrations, not a schema file.** SQLite cannot add a constraint to an existing table, so
 `migrate.js` holds numbered migrations that rebuild tables (create → copy → drop → rename) and
-records progress in `PRAGMA user_version`. Currently at version 6. Schema changes go in a new
+records progress in `PRAGMA user_version`. Currently at version 8. Schema changes go in a new
 numbered migration; never edit an existing one. `currentVersion()` special-cases pre-migration
 databases (`user_version = 0` but tables already present) by probing for `health_events`.
 
@@ -148,8 +148,22 @@ and must be retained in the event snapshot.
 
 **The browser UI is multi-page without a build step.** Shared navigation/styles live in
 `public/assets/app.js` and `public/assets/app.css`; each HTML page has a matching page script.
-Keep dashboard, treatments, herd, dry-off and medicines/reference concerns separate, and test
-both desktop sidebar and mobile bottom-navigation layouts after UI changes.
+Keep dashboard, treatments, reviews, herd, dry-off, medicines/reference, assistant, feedback and
+account concerns separate, and test both desktop sidebar and mobile bottom-navigation layouts
+after UI changes.
+
+**The signed-in session is the actor.** `auth.js` holds password hashing, server-side sessions
+and role checks; `app.use('/api', authRequired)` protects everything except health and sign-in.
+Owner, vet and milker roles gate medicine verification, farm settings, corrections, user creation
+and final dry-off decisions. A request body can never name a different creator.
+
+**The assistant classifies; the server decides.** `assistant.js` maps wording to one of
+`vat_exclusions_today`, `cow_status`, `draft_event` or `unsupported`, and nothing else. The route
+resolves the cow against real tag numbers, accepts a date only as today/yesterday/`YYYY-MM-DD`,
+reads explanations from the stored event snapshot without recalculating, and returns treatment
+drafts with the medicine and regimen deliberately blank. A draft writes nothing: confirmation
+goes through `POST /api/events` so the role checks, validation, snapshot and audit trail all
+still apply. See `docs/ai-interface.md`.
 
 ## Conventions
 
@@ -164,4 +178,7 @@ The ACVM reference-data blocker has been resolved for the five active products. 
 still versioned evidence, not a one-off seed: re-check it when an Approved Label changes and add a
 new revision instead of overwriting the one attached to historical events.
 
-An LLM layer for natural-language entry and queries remains planned and has not been started.
+The natural-language layer now implements the three intents described in
+`docs/ai-interface.md`. Drafting a treatment, dry-off or SCC record is still future work,
+because a person must select the medicine and regimen inside the preview before anything could
+be confirmed. Keep any new intent read-only or draft-only.

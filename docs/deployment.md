@@ -87,7 +87,7 @@ Use [`.env.example`](../.env.example) as a names-only checklist when entering va
 hosting dashboard. It contains no usable credentials and must remain that way.
 
 After deployment, sign in as each role and confirm that the dashboard, review queue and Field
-feedback page load, ask the supported read-only vat question, change one test account password,
+feedback page load, ask the supported vat and single-cow questions, change one test account password,
 and confirm that a milker receives a permission message when attempting an
 owner-only action. `GET /api/health` must return `status: ok` and `schema_version: 8`.
 
@@ -127,7 +127,8 @@ treatments, review items and vat-exclusion list.
 - Session state is stored in SQLite and expires after 12 hours.
 - Failed sign-ins are limited in memory to 10 attempts per username and IP every 15 minutes.
   A distributed deployment would need a shared limiter.
-- The assistant currently supports one read-only intent. External AI availability never changes
-  the deterministic database result or enables write access.
+- The assistant supports three intents: the daily vat list, one cow's recorded hold, and a
+  calving draft that only a person can confirm. External AI availability never changes the
+  deterministic database result, and the assistant endpoint itself writes nothing.
 - A multi-farm or multi-instance version should move operational data and sessions to a
   managed relational database.
