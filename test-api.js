@@ -553,8 +553,8 @@ async function run() {
     res.body.count === directVatRows.length
       && res.body.rows.map(row => row.id).join(',') === directVatRows.map(row => row.id).join(','),
     JSON.stringify({ assistant: res.body.rows, direct: directVatRows }));
-  assert('the assistant exposes that the local constrained matcher was used without an API key',
-    res.body.assistant_mode === 'local' && /not configured/i.test(res.body.notice),
+  assert('the assistant exposes that the local constrained matcher was used',
+    res.body.assistant_mode === 'local' && res.body.notice === null,
     JSON.stringify(res.body));
 
   res = await call('POST', '/api/assistant/query', {
@@ -913,9 +913,7 @@ const server = spawn(process.execPath, ['server.js'], {
   env: {
     ...process.env,
     CALVING_LOG_DB: TEST_DB,
-    PORT: String(PORT),
-    OPENAI_API_KEY: '',
-    OPENAI_MODEL: ''
+    PORT: String(PORT)
   },
   stdio: ['ignore', 'ignore', 'pipe']
 });

@@ -10,12 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let pendingDraft = null;
 
   function modeBadge(payload) {
-    const label = payload.assistant_mode === 'openai'
-      ? 'External AI intent'
-      : payload.assistant_mode === 'local_fallback'
-        ? 'Local fallback intent'
-        : 'Local constrained intent';
-    return badge(label, 'info');
+    return badge('Local constrained intent', 'info');
   }
 
   function warningList(warnings) {

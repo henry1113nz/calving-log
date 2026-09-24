@@ -69,8 +69,8 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 - Backend: Node.js + Express
 - Database: SQLite via better-sqlite3, with versioned migrations
 - Frontend: HTML / CSS / JavaScript, no build step
-- AI layer: constrained intent classification through the OpenAI Responses API when configured,
-  with a local fallback; the server resolves every entity and performs every calculation
+- Language helper: constrained local intent matching; the server resolves every entity and
+  performs every calculation
 
 ## Project layout
 
@@ -86,12 +86,12 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 | `dryOffAdvisor.js` | dry-off treatment selection criteria (pure logic) |
 | `verify-db.js` | database constraint verification |
 | `test-api.js` | API endpoint tests |
-| `assistant.js` | constrained local/OpenAI intent classification; never performs the safety calculation, and never supplies a cow, date or medicine |
+| `assistant.js` | constrained local intent matching; never performs the safety calculation, and never supplies a cow, date or medicine |
 | `public/*.html` | login, dashboard, events, reviews, herd, dry-off, medicines, assistant, feedback and account pages (the owner creates trial sign-ins on Account) |
 | `public/assets/` | shared responsive styles and page-specific browser logic |
 | `docs/schema.md` | database design and rationale |
 | `docs/deployment.md` | production configuration, backup and restore drill |
-| `docs/ai-interface.md` | implemented language interface and its safety boundary |
+| `docs/language-interface.md` | implemented language interface and its safety boundary |
 
 ## Status
 
@@ -126,8 +126,7 @@ usability feedback while limiting the response history to the owner.
 
 The natural-language page now covers three constrained intents: today's vat-exclusion list,
 an explanation of one cow's recorded hold read back from the stored event snapshot, and a calving draft that writes nothing until a person
-confirms it through the ordinary event route. The model only classifies the wording; the server
+confirms it through the ordinary event route. The local matcher only classifies the wording; the server
 resolves the cow and the date, asks when either is missing, and refuses to choose a medicine,
-a regimen or a withholding period. External OpenAI intent classification is optional; without a
-key the same intents remain available through a local matcher. See
-[docs/ai-interface.md](docs/ai-interface.md).
+a regimen or a withholding period. No question or farm record is sent to an external service. See
+[docs/language-interface.md](docs/language-interface.md).

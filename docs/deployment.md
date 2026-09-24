@@ -23,20 +23,6 @@ application restart does not reset it to the environment value.
 Use HTTPS at the hosting layer; the session cookie is `HttpOnly`, `SameSite=Strict` and
 marked `Secure` when Express receives the original HTTPS request through the trusted proxy.
 
-## Optional external AI configuration
-
-The read-only Ask CalvingLog page works without an external service through its constrained
-local intent matcher. To enable external intent classification, set both variables below on the
-server. Never expose the API key in browser JavaScript.
-
-| Variable | Purpose |
-|---|---|
-| `OPENAI_API_KEY` | Server-side OpenAI API credential. |
-| `OPENAI_MODEL` | Model selected for the Responses API classification call. |
-
-The model receives only the user's question. It does not receive farm records and it cannot
-write data or produce a withholding date.
-
 ## Container deployment
 
 ```bash
@@ -128,7 +114,7 @@ treatments, review items and vat-exclusion list.
 - Failed sign-ins are limited in memory to 10 attempts per username and IP every 15 minutes.
   A distributed deployment would need a shared limiter.
 - The assistant supports three intents: the daily vat list, one cow's recorded hold, and a
-  calving draft that only a person can confirm. External AI availability never changes the
+  calving draft that only a person can confirm. External-service availability never changes the
   deterministic database result, and the assistant endpoint itself writes nothing.
 - A multi-farm or multi-instance version should move operational data and sessions to a
   managed relational database.

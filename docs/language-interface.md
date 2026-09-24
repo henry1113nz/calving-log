@@ -22,12 +22,12 @@ snapshots that the rest of the application uses.
    so the signed-in user is the actor and the normal validation, review queue, snapshot and audit
    trail all apply.
 
-## What the model is allowed to do
+## What the local matcher is allowed to do
 
-The model classifies the wording into one intent: `vat_exclusions_today`, `cow_status`,
+The local matcher classifies the wording into one intent: `vat_exclusions_today`, `cow_status`,
 `draft_event` or `unsupported`. That is its entire contribution.
 
-Entities are resolved by the server, not by the model:
+Entities are resolved by the server, not by the matcher:
 
 - a cow is matched against the tag numbers that exist in the database, never parsed out of the
   sentence as a new value; an unknown or ambiguous tag is asked about instead;
@@ -36,15 +36,12 @@ Entities are resolved by the server, not by the model:
 - a medicine, a treatment regimen and a withholding period are never chosen. Treatment wording
   produces a draft with those fields deliberately blank and a pointer to the Treatments page.
 
-Farm records, ACVM label data and calculated dates are never sent to the model. When both
-`OPENAI_API_KEY` and `OPENAI_MODEL` are configured, the server sends only the user's question to
-the OpenAI Responses API and requires one of the four structured intents. Otherwise a deliberately
-narrow English/Chinese local matcher is used, and the response says which mode produced the
-classification.
+Farm records, ACVM label data, calculated dates and user questions stay inside the application.
+The deliberately narrow English/Chinese matcher does not call an external service.
 
 ## Prohibited behaviour
 
-- The model must never invent, estimate or override a milk or meat withholding period.
+- The matcher must never invent, estimate or override a milk or meat withholding period.
 - It must never select an Orbenin regimen, infer a missing calving date or treat an unresolved
   review as safe.
 - It must never create an owner/vet-only correction, medicine verification, farm-setting change
@@ -58,7 +55,7 @@ classification.
 → existing authenticated query or a draft for confirmation → deterministic database result`
 
 If a required fact is missing or ambiguous, the reply asks for it rather than choosing a value.
-The model output itself is never written as a clear date.
+The matcher output itself is never written as a clear date.
 
 ## Still future work
 

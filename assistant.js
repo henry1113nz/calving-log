@@ -1,12 +1,5 @@
 // 助手只负责"这句话属于哪一类请求",不负责回答。停药期永远由 withdrawalCalculator
 // 和数据库里的快照决定,模型连一个日期、一头牛、一种药都不准提供。
-const ALLOWED_INTENTS = new Set([
-  'vat_exclusions_today',
-  'cow_status',
-  'draft_event',
-  'unsupported'
-]);
-
 // 问句和陈述句要分开:"哪些牛产犊了"是查询,"212 号今天产犊了"才是要录入的事实。
 // 分不清就会把一句提问变成一条待确认的记录,让人以为系统要写库。
 const QUESTION_OPENERS =
@@ -53,85 +46,12 @@ function localIntent(question) {
   return 'unsupported';
 }
 
-function responseText(payload) {
-  for (const item of payload?.output || []) {
-    for (const content of item?.content || []) {
-      if (content?.type === 'output_text' && typeof content.text === 'string') {
-        return content.text;
-      }
-    }
-  }
-  return '';
+async function classifyIntent(question) {
+  return {
+    intent: localIntent(question),
+    mode: 'local',
+    notice: null
+  };
 }
 
-async function classifyIntent(question, options = {}) {
-  const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
-  const model = options.model ?? process.env.OPENAI_MODEL;
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const fallbackIntent = localIntent(question);
-
-  if (!apiKey || !model) {
-    return {
-      intent: fallbackIntent,
-      mode: 'local',
-      notice: 'External AI is not configured; the constrained local intent matcher was used.'
-    };
-  }
-
-  try {
-    const response = await fetchImpl('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model,
-        store: false,
-        max_output_tokens: 80,
-        instructions:
-          'Classify the user request for a dairy farm record system. Return one intent only. ' +
-          'vat_exclusions_today: the user asks which cows must stay out of the milk vat today. ' +
-          'cow_status: the user asks about the recorded milk-withholding situation of one named or numbered cow. ' +
-          'draft_event: the user states that something happened to a cow and wants it recorded. ' +
-          'unsupported: every other request. ' +
-          'Do not calculate a withholding period, choose a medicine or regimen, diagnose, ' +
-          'or provide a milk-release decision. Return no data other than the intent.',
-        input: String(question),
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'calving_log_intent',
-            strict: true,
-            schema: {
-              type: 'object',
-              properties: {
-                intent: {
-                  type: 'string',
-                  enum: ['vat_exclusions_today', 'cow_status', 'draft_event', 'unsupported']
-                }
-              },
-              required: ['intent'],
-              additionalProperties: false
-            }
-          }
-        }
-      }),
-      signal: AbortSignal.timeout(8000)
-    });
-
-    if (!response.ok) throw new Error(`OpenAI request failed (${response.status})`);
-    const payload = await response.json();
-    const parsed = JSON.parse(responseText(payload));
-    if (!ALLOWED_INTENTS.has(parsed.intent)) throw new Error('Unexpected intent');
-    return { intent: parsed.intent, mode: 'openai', notice: null };
-  } catch {
-    return {
-      intent: fallbackIntent,
-      mode: 'local_fallback',
-      notice: 'The external AI service was unavailable; the constrained local intent matcher was used.'
-    };
-  }
-}
-
-module.exports = { ALLOWED_INTENTS, classifyIntent, localIntent, responseText };
+module.exports = { classifyIntent, localIntent };
