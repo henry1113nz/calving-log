@@ -2,7 +2,6 @@ node_modules
 calving-log.db
 *.db.backup-*
 backups/
-.claude/
 .env
 .env.*
 !.env.example
