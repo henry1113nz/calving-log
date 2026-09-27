@@ -97,12 +97,17 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 
 In development — COMPX576 project, University of Waikato.
 
-The application is at schema version 9. Five current products in the active reference
+The application is at schema version 9. Eight current products in the active reference
 set have been checked against their current MPI ACVM Approved Labels, including the label
 wording, source, revision and rule variants used by the calculator. `Bovaclox DC Xtra`
 (A009020) is deliberately inactive because the current register does not provide a
 current Approved Label for that registration; the label for A004495 belongs to a
 different product and must not be substituted.
+
+The 28 September 2026 reference import adds Albiotic, Mastiplan and Noroclox DC 600.
+Albiotic and Mastiplan use explicit current-label rules because their OAD and TAD milk
+periods differ. Noroclox DC 600 uses the conditional dry-cow branch with its own 35-day
+condition and eight post-calving milkings.
 
 The v5 import reviews active legacy events and records every before/after result in the
 correction audit. It does not guess a missing Orbenin regimen: a legacy event is linked to

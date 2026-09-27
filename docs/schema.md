@@ -535,7 +535,7 @@ package from being applied twice.
 
 ## 5. Reference data status
 
-> **All five active reference products have current ACVM label evidence.**
+> **All eight active reference products have current ACVM label evidence.**
 
 The initial v5 reference import was checked on 2026-08-17 against the MPI ACVM register
 and the current Approved Label attached to the matching registration.
@@ -548,6 +548,9 @@ and the current Approved Label attached to the matching registration.
 | Cepravin Dry Cow | A003322 | July 2025 | active; verified; normal and early-calving logic represented |
 | Teatseal | A007294 | October 2025 | active; verified; eight milkings after calving, meat nil |
 | Bovaclox DC Xtra | A009020 | no current Approved Label available | inactive; must not be used for calculation |
+| Albiotic | A007712 | February 2024 | active; 4 OAD or 5 TAD milkings; meat 10 days |
+| Mastiplan | A011329 | July 2026 | active; 7 OAD or 10 TAD milkings; meat 3 days |
+| Noroclox DC 600 | A009281 | September 2026 | active; 35-day condition plus 8 milkings; meat 28 days |
 
 A004495 is the registration for **Bovaclox Dry Cow**, not Bovaclox DC Xtra. Its Approved
 Label is not evidence for A009020 and must never be substituted merely because the trade

@@ -399,7 +399,7 @@ app.get('/api/drugs', (req, res) => {
 
     let summary;
     if (drug.requires_regimen) {
-      summary = `Select the treatment regimen (${rules.length} approved options)`;
+      summary = `Select the matching label rule (${rules.length} approved option${rules.length === 1 ? '' : 's'})`;
     } else if (drug.whp_depends_on_dose) {
       summary = 'Depends on dose — veterinary/manual period required';
     } else {
@@ -580,7 +580,7 @@ app.post('/api/drugs', requireRole('owner', 'vet'), (req, res) => {
   if (validationError) return res.status(400).json({ error: validationError });
   if (drug.is_active && drug.requires_regimen) {
     return res.status(400).json({
-      error: 'A new regimen-based medicine must be saved inactive until its labelled regimen rules are recorded'
+      error: 'A medicine with frequency or regimen-specific periods must be saved inactive until its labelled rules are recorded'
     });
   }
 
@@ -923,7 +923,7 @@ app.post('/api/events', (req, res) => {
   }
   if (drug?.requires_regimen && !selectedRule) {
     return res.status(400).json({
-      error: `${drug.drug_name} requires the actual treatment regimen to be selected`
+      error: `${drug.drug_name} requires the matching label rule to be selected`
     });
   }
   if (selectedRule && !drug.requires_regimen) {

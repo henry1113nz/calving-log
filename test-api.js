@@ -174,8 +174,8 @@ async function run() {
 
   const drugResponse = await call('GET', '/api/drugs');
   const drugs = drugResponse.body;
-  assert('GET /api/drugs exposes the five active, verified references',
-    drugResponse.status === 200 && Array.isArray(drugs) && drugs.length === 5
+  assert('GET /api/drugs exposes the eight active, verified references',
+    drugResponse.status === 200 && Array.isArray(drugs) && drugs.length === 8
       && drugs.every(d => d.is_active === 1 && d.is_verified === true),
     JSON.stringify(drugs));
   assert('GET /api/drugs always exposes a rules array',
@@ -187,12 +187,16 @@ async function run() {
   const orbenin = drugs.find(d => d.drug_name === 'Orbenin L.A.');
   const dryCowDrug = drugs.find(d => d.drug_name === 'Cepravin Dry Cow');
   const teatSeal = drugs.find(d => /^teat\s*seal$/i.test(d.drug_name));
+  const albiotic = drugs.find(d => d.drug_name === 'Albiotic');
+  const mastiplan = drugs.find(d => d.drug_name === 'Mastiplan');
+  const noroclox = drugs.find(d => d.drug_name === 'Noroclox DC 600');
   const lactatingDrug = mastalone;
   const lactatingRule = lactatingDrug;
   const dryCowRule = dryCowDrug;
 
-  assert('the five expected active products are present',
-    [mastalone, penethaject, orbenin, dryCowDrug, teatSeal].every(Boolean),
+  assert('the eight expected active products are present',
+    [mastalone, penethaject, orbenin, dryCowDrug, teatSeal,
+      albiotic, mastiplan, noroclox].every(Boolean),
     JSON.stringify(drugs.map(d => d.drug_name)));
 
   res = await call('POST', '/api/events', {
@@ -672,10 +676,10 @@ async function run() {
 
   res = await call('GET', '/api/drugs/reference-status');
   const referenceStatus = res.body;
-  assert('reference-status reports five verified active drugs and one inactive drug',
+  assert('reference-status reports eight verified active drugs and one inactive drug',
     res.status === 200
-      && referenceStatus.active_count === 5
-      && referenceStatus.verified_active_count === 5
+      && referenceStatus.active_count === 8
+      && referenceStatus.verified_active_count === 8
       && referenceStatus.unverified_active_count === 0
       && referenceStatus.inactive_count === 1,
     JSON.stringify(referenceStatus));
@@ -721,6 +725,55 @@ async function run() {
       && teatSeal.milk_withdrawal_value === 8
       && teatSeal.milk_withdrawal_unit === 'milkings',
     JSON.stringify(teatSeal));
+
+  assert('Albiotic carries its OAD and TAD label periods in one current rule',
+    albiotic.acvm_registration_no === 'A007712'
+      && albiotic.meat_withdrawal_days === 10
+      && albiotic.requires_regimen === 1
+      && albiotic.rules.length === 1
+      && albiotic.rules[0].milkings_once_daily === 4
+      && albiotic.rules[0].milkings_twice_daily === 5,
+    JSON.stringify(albiotic));
+  assert('Mastiplan carries its OAD and TAD label periods in one current rule',
+    mastiplan.acvm_registration_no === 'A011329'
+      && mastiplan.meat_withdrawal_days === 3
+      && mastiplan.requires_regimen === 1
+      && mastiplan.rules.length === 1
+      && mastiplan.rules[0].milkings_once_daily === 7
+      && mastiplan.rules[0].milkings_twice_daily === 10,
+    JSON.stringify(mastiplan));
+  assert('Noroclox records the 35-day condition, 8 milkings and 28-day meat period',
+    noroclox.acvm_registration_no === 'A009281'
+      && noroclox.minimum_dry_period_days === 35
+      && noroclox.milk_withdrawal_value === 8
+      && noroclox.milk_withdrawal_unit === 'milkings'
+      && noroclox.meat_withdrawal_days === 28,
+    JSON.stringify(noroclox));
+
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-09-10',
+    drug_id: albiotic.id, drug_rule_id: albiotic.rules[0].id, milkings_per_day: 2
+  });
+  assert('Albiotic TAD holds milk for 5 milkings after the last treatment',
+    res.status === 201 && res.body.withdrawal_end_date === '2026-09-13',
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-09-10',
+    drug_id: mastiplan.id, drug_rule_id: mastiplan.rules[0].id, milkings_per_day: 1
+  });
+  assert('Mastiplan OAD holds milk for 7 milkings after the last treatment',
+    res.status === 201 && res.body.withdrawal_end_date === '2026-09-17',
+    JSON.stringify(res.body));
+
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'dry_off', event_date: '2026-08-20',
+    calving_date: '2026-09-01', calving_date_source: 'actual',
+    drug_id: noroclox.id, milkings_per_day: 2
+  });
+  assert('Noroclox early calving applies 35 days from treatment plus 8 milkings',
+    res.status === 201 && res.body.withdrawal_end_date === '2026-09-28',
+    JSON.stringify(res.body));
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'dry_off', event_date: '2026-08-01', drug_id: teatSeal.id
@@ -822,7 +875,7 @@ async function run() {
     is_active: true
   });
   assert('a new regimen-based medicine cannot activate before its rules exist',
-    res.status === 400 && /regimen rules/i.test(res.body.error), JSON.stringify(res.body));
+    res.status === 400 && /labelled rules|regimen rules/i.test(res.body.error), JSON.stringify(res.body));
 
   // ------------------------------------------------------------------- SCC
   heading('SCC records');

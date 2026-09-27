@@ -153,8 +153,8 @@ function calculateWithdrawal(input) {
         days_applied: null,
         end_date: null,
         message:
-          `${drug.drug_name} has more than one approved treatment regimen. ` +
-          'Select the regimen that was actually used before calculating a clear date.'
+          `${drug.drug_name} has a frequency- or regimen-specific approved label rule. ` +
+          'Select the matching rule before calculating a clear date.'
       };
     }
 

@@ -4,6 +4,7 @@ const path = require('path');
 const { migrate } = require('./migrate');
 const { seed } = require('./seed');
 const { syncAcvmReferenceData } = require('./acvmReferenceData');
+const { syncAdditionalAcvmReferenceData } = require('./acvmAdditionalReferenceData');
 const { ensureUserCredentials } = require('./auth');
 
 // 允许指向别的文件,这样验证脚本和以后的测试可以跑在副本上,不碰真实数据。
@@ -38,6 +39,14 @@ if (referenceSync.applied) {
       `(sha256 ${referenceSync.backup.sha256})`
     );
   }
+}
+
+const additionalReferenceSync = syncAdditionalAcvmReferenceData(db);
+if (additionalReferenceSync.applied) {
+  console.log(
+    `Applied reference data ${additionalReferenceSync.version}; ` +
+    `${additionalReferenceSync.products_added} additional product(s) added`
+  );
 }
 
 module.exports = db;

@@ -561,7 +561,7 @@ try {
   heading('10. Reference data provenance');
 
   const drugRows = db.prepare(`
-    SELECT drug_name, active_ingredient, milk_withdrawal_value, milk_withdrawal_unit,
+    SELECT id, drug_name, active_ingredient, milk_withdrawal_value, milk_withdrawal_unit,
            meat_withdrawal_days, calculation_basis, minimum_dry_period_days,
            acvm_registration_no, label_revision, requires_regimen,
            label_wording, verified_on, verified_by, source_reference,
@@ -584,8 +584,8 @@ try {
   console.log();
   // v5 把参考数据核验从“提示”升级成发布门槛。只要启用的药有一条缺出处,
   // 脚本就以非零状态退出,不能再带着红色警告仍然声称数据库验证通过。
-  check('the five baseline active drug references are available',
-    drugRows.length >= 5, `${drugRows.length} active drug(s)`);
+  check('the eight verified active drug references are available',
+    drugRows.length >= 8, `${drugRows.length} active drug(s)`);
   check('every active drug has complete verified ACVM provenance',
     unverified.length === 0,
     unverified.length
@@ -628,6 +628,9 @@ try {
   const cepravin = byName['Cepravin Dry Cow'];
   const teatSeal = drugRows.find(d => /^teat\s*seal$/i.test(d.drug_name));
   const orbenin = byName['Orbenin L.A.'];
+  const albiotic = byName.Albiotic;
+  const mastiplan = byName.Mastiplan;
+  const noroclox = byName['Noroclox DC 600'];
 
   check('Mastalone uses 8 milkings and a 30-day meat withholding period',
     mastalone && mastalone.milk_withdrawal_value === 8
@@ -665,6 +668,39 @@ try {
     orbenin && orbenin.requires_regimen === 1 && orbeninRules.length > 1
       && orbeninRules.every(r => r.milkings_once_daily > 0 && r.milkings_twice_daily > 0),
     JSON.stringify(orbeninRules));
+
+  const albioticRules = albiotic
+    ? db.prepare('SELECT * FROM drug_withdrawal_rules WHERE drug_id = ?').all(albiotic.id)
+    : [];
+  check('Albiotic has one current OAD/TAD label rule',
+    albiotic
+      && albiotic.acvm_registration_no === 'A007712'
+      && albiotic.meat_withdrawal_days === 10
+      && albioticRules.length === 1
+      && albioticRules[0].milkings_once_daily === 4
+      && albioticRules[0].milkings_twice_daily === 5,
+    JSON.stringify({ product: albiotic, rules: albioticRules }));
+
+  const mastiplanRules = mastiplan
+    ? db.prepare('SELECT * FROM drug_withdrawal_rules WHERE drug_id = ?').all(mastiplan.id)
+    : [];
+  check('Mastiplan has one current OAD/TAD label rule',
+    mastiplan
+      && mastiplan.acvm_registration_no === 'A011329'
+      && mastiplan.meat_withdrawal_days === 3
+      && mastiplanRules.length === 1
+      && mastiplanRules[0].milkings_once_daily === 7
+      && mastiplanRules[0].milkings_twice_daily === 10,
+    JSON.stringify({ product: mastiplan, rules: mastiplanRules }));
+
+  check('Noroclox DC 600 has its 35-day condition and 8-milking period',
+    noroclox
+      && noroclox.acvm_registration_no === 'A009281'
+      && noroclox.minimum_dry_period_days === 35
+      && noroclox.milk_withdrawal_value === 8
+      && noroclox.milk_withdrawal_unit === 'milkings'
+      && noroclox.meat_withdrawal_days === 28,
+    JSON.stringify(noroclox));
 
   const unselectedRequiredRegimens = db.prepare(`
     SELECT COUNT(*) AS count

@@ -67,6 +67,10 @@ document.addEventListener('DOMContentLoaded', () => {
         option.dataset.description = rule.description;
         regimenSelect.appendChild(option);
       }
+      if ((drug.rules || []).length === 1) {
+        regimenSelect.value = String(drug.rules[0].id);
+        regimenSelect.dispatchEvent(new Event('change'));
+      }
     }
 
     const tags = [
