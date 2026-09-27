@@ -12,7 +12,7 @@
     <div class="app-main">
       <header class="page-header">
         <div><p class="eyebrow">Reference control</p><h1 class="page-title">Medicines & milking schedule</h1><p class="page-subtitle">Keep regulatory evidence and seasonal milking changes away from the daily treatment screen.</p></div>
-        <div class="page-actions"><a class="btn" href="#schedule-form">Schedule a change</a></div>
+        <div class="page-actions"><a class="btn secondary" id="manage-medicines" href="/medicine-editor.html" hidden>Add medicine</a><a class="btn" href="#schedule-form">Schedule a change</a></div>
       </header>
       <main class="page-content stack">
         <section class="stats-grid" style="margin-top:0">
@@ -44,7 +44,7 @@
         </div>
 
         <section class="card">
-          <div class="card-head"><div><h2 class="card-title">ACVM reference library</h2><p class="card-subtitle">Current active products and inactive records retained for traceability.</p></div></div>
+          <div class="card-head"><div><h2 class="card-title">ACVM reference library</h2><p class="card-subtitle">Current active products and inactive records retained for traceability.</p></div><a class="btn secondary" id="manage-medicines-inline" href="/medicine-editor.html" hidden>Add medicine</a></div>
           <div id="reference-summary" style="margin-bottom:14px" hidden></div>
           <div id="medicine-list" class="loading">Loading medicine references…</div>
         </section>

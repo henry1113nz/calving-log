@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Medicine editor · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="medicines">
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="page-header">
+        <div><p class="eyebrow">Owner and vet control</p><h1 class="page-title" id="editor-title">Add medicine</h1><p class="page-subtitle">Record the product first, then activate it only when the matching ACVM label evidence is complete.</p></div>
+        <div class="page-actions"><a class="btn secondary" href="/medicines.html">Back to medicines</a></div>
+      </header>
+      <main class="page-content stack">
+        <section class="card">
+          <p class="notice warning"><strong>Saving is not verification.</strong> An inactive draft cannot be selected for treatment. Activation requires the registration number, label revision, exact label wording, official HTTPS source, verification date and verifier. A product with multiple labelled regimens also needs its structured regimen rules before activation.</p>
+          <form id="medicine-form">
+            <div class="card-head"><div><h2 class="card-title">Product identity</h2><p class="card-subtitle">Use the product name and registration shown on the matching approved label.</p></div></div>
+            <div class="form-grid">
+              <div class="field"><label for="drug_name">Medicine name</label><input id="drug_name" maxlength="120" required></div>
+              <div class="field"><label for="active_ingredient">Active ingredient</label><input id="active_ingredient" maxlength="240"></div>
+              <div class="field"><label for="acvm_registration_no">ACVM registration number</label><input id="acvm_registration_no" maxlength="40" placeholder="e.g. A003322"></div>
+              <div class="field"><label for="label_revision">Approved label revision</label><input id="label_revision" maxlength="160" placeholder="Registration, revision and label date"></div>
+            </div>
+
+            <div class="card-head section-head"><div><h2 class="card-title">Withholding rule</h2><p class="card-subtitle">Store the unit exactly as the label expresses it. Milkings are not silently converted into a permanent day value.</p></div></div>
+            <div class="form-grid">
+              <div class="field"><label for="milk_withdrawal_value">Milk withholding value</label><input id="milk_withdrawal_value" type="number" min="0" step="1" required></div>
+              <div class="field"><label for="milk_withdrawal_unit">Milk withholding unit</label><select id="milk_withdrawal_unit"><option value="hours">Hours</option><option value="days">Days</option><option value="milkings">Milkings</option></select></div>
+              <div class="field"><label for="meat_withdrawal_days">Meat withholding days</label><input id="meat_withdrawal_days" type="number" min="0" step="1"></div>
+              <div class="field"><label for="calculation_basis">Count from</label><select id="calculation_basis"><option value="treatment_date">Last treatment date</option><option value="calving_date">Calving date</option></select></div>
+              <div class="field"><label for="minimum_dry_period_days">Minimum dry period days</label><input id="minimum_dry_period_days" type="number" min="0" step="1"><span class="hint">Only applies when the rule counts from calving.</span></div>
+              <div class="field check-field"><label><input id="whp_depends_on_dose" type="checkbox"> Withholding period depends on dose</label><label><input id="requires_regimen" type="checkbox"> Multiple labelled regimens must be selected</label></div>
+            </div>
+            <div id="regimen-notice" class="notice info" hidden>A regimen-based medicine can be saved here, but it remains inactive until its labelled regimen rules have been entered and checked.</div>
+
+            <div class="card-head section-head"><div><h2 class="card-title">Verification evidence</h2><p class="card-subtitle">Copy the wording from the matching official label and keep the source link.</p></div></div>
+            <div class="form-grid">
+              <div class="field span-2"><label for="label_wording">Exact label wording</label><textarea id="label_wording" rows="5" maxlength="4000"></textarea></div>
+              <div class="field span-2"><label for="source_reference">Official HTTPS source</label><input id="source_reference" type="url" maxlength="1000" placeholder="https://..."></div>
+              <div class="field"><label for="verified_on">Verified on</label><input id="verified_on" type="date"></div>
+              <div class="field"><label for="verified_by">Verified by</label><input id="verified_by" maxlength="120"></div>
+            </div>
+
+            <div class="card-head section-head"><div><h2 class="card-title">Availability</h2><p class="card-subtitle">Inactive medicines remain visible for audit but cannot be selected on the Treatments page.</p></div></div>
+            <label class="activation-row"><input id="is_active" type="checkbox"> <span><strong>Active for treatment entry</strong><br>Only select this after every evidence field is complete and checked.</span></label>
+
+            <div class="form-actions"><button class="btn" id="medicine-submit" type="submit">Save medicine</button><a class="btn secondary" href="/medicines.html">Cancel</a></div>
+          </form>
+          <div id="medicine-notice" style="margin-top:14px" hidden></div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/medicine-editor.js"></script>
+</body>
+</html>

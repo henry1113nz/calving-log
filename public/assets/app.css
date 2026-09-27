@@ -277,6 +277,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field.span-2 { grid-column: 1 / -1; }
 .field label { color: #3b4941; font-size: 16px; font-weight: 800; letter-spacing: .015em; }
+.section-head { margin-top: 28px; }
+.check-field { align-content: start; gap: 12px; padding-top: 29px; }
+.check-field label { display: flex; align-items: flex-start; gap: 9px; font-weight: 700; }
+.check-field input, .activation-row input { width: 21px; height: 21px; flex: 0 0 auto; margin-top: 1px; }
+.activation-row { display: flex; align-items: flex-start; gap: 11px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: var(--forest-50); font-size: 16px; }
 .field .hint { color: var(--muted); font-size: 15px; font-weight: 500; }
 fieldset.field { margin: 0; padding: 0; border: 0; }
 fieldset.field legend { margin-bottom: 6px; color: #3b4941; font-size: 16px; font-weight: 800; }

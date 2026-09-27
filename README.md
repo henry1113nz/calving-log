@@ -87,7 +87,7 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 | `verify-db.js` | database constraint verification |
 | `test-api.js` | API endpoint tests |
 | `assistant.js` | constrained local intent matching; never performs the safety calculation, and never supplies a cow, date or medicine |
-| `public/*.html` | login, dashboard, events, reviews, herd, dry-off, medicines, assistant, feedback and account pages (the owner creates trial sign-ins on Account) |
+| `public/*.html` | login, dashboard, events, reviews, herd, dry-off, medicines, medicine editor, assistant, feedback and account pages |
 | `public/assets/` | shared responsive styles and page-specific browser logic |
 | `docs/schema.md` | database design and rationale |
 | `docs/deployment.md` | production configuration, backup and restore drill |
@@ -116,13 +116,20 @@ settings, historical corrections, user creation and final dry-off decisions. Eve
 correction stores its reason, actor and before/after JSON snapshots. Automatically unprovable
 cases enter a review queue and remain visible through accountable resolution.
 
-The front end is split into nine focused, responsive operational pages instead of one crowded
+The front end is split into focused, responsive operational pages instead of one crowded
 screen: the daily dashboard, treatment/events entry, accountable reviews, herd records,
-evidence-based dry-off decisions, medicines/reference control, a constrained natural-language
+evidence-based dry-off decisions, medicines/reference control, a separate Owner/Vet medicine
+editor, a constrained natural-language
 assistant, structured field feedback, and account security. It shows verification and
 attention states, handles an unknown clear date safely, supports regimen selection where
 required, exposes correction history, explains role restrictions, and lets all roles submit
 usability feedback while limiting the response history to the owner.
+
+The medicine editor separates catalogue entry from approval. Owner and Vet users may save an
+inactive draft, but it cannot appear in treatment selection until the matching ACVM registration,
+label revision, exact label wording, HTTPS source, verification date and verifier are present.
+Changing a safety-critical field removes verification and deactivates the product. A product with
+multiple labelled regimens also remains inactive until its structured regimen rules exist.
 
 The natural-language page now covers three constrained intents: today's vat-exclusion list,
 an explanation of one cow's recorded hold read back from the stored event snapshot, and a calving draft that writes nothing until a person

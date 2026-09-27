@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <dt>Checked</dt><dd>${drug.verified_on ? `${escapeHtml(formatDate(drug.verified_on))} · ${escapeHtml(drug.verified_by || '')}` : 'Not verified'}</dd>
           </dl>
           <details class="medicine-label"><summary>Label wording and source</summary><p>${escapeHtml(drug.label_wording || 'No current approved label wording is stored.')}</p>${drug.source_reference?.startsWith('http') ? `<a href="${escapeHtml(drug.source_reference)}" target="_blank" rel="noreferrer">Open source reference</a>` : `<p>${escapeHtml(drug.source_reference || 'No source reference')}</p>`}</details>
+          ${['owner', 'vet'].includes(state.user?.role) ? `<div class="form-actions"><a class="btn secondary" href="/medicine-editor.html?id=${escapeHtml(drug.id)}">Edit medicine</a></div>` : ''}
         </article>`;
     }).join('')}</div>`;
   }
@@ -87,6 +88,9 @@ document.addEventListener('DOMContentLoaded', () => {
       Object.assign(state, { schedule, references, user });
       document.getElementById('schedule-identity').textContent = `${user.name} · ${humanize(user.role)} (recorded automatically)`;
       const canEditSchedule = user.role === 'owner';
+      const canManageMedicines = ['owner', 'vet'].includes(user.role);
+      document.getElementById('manage-medicines').hidden = !canManageMedicines;
+      document.getElementById('manage-medicines-inline').hidden = !canManageMedicines;
       document.querySelectorAll('#milking-schedule-form input, #milking-schedule-form select, #milking-schedule-form textarea, #milking-schedule-form button')
         .forEach(control => { control.disabled = !canEditSchedule; });
       if (!canEditSchedule) {

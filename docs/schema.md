@@ -271,6 +271,12 @@ Verified historical events retain `drug_reference_revision_id` and, when applica
 `drug_rule_id`; a later label update cannot silently attach old treatment records to new
 evidence.
 
+The Owner/Vet medicine editor may create an inactive catalogue draft before the evidence is
+complete. Activation is an API safety boundary: it requires a complete immutable reference
+revision, and regimen-based products additionally require at least one labelled rule for that
+revision. Editing a safety-critical identity or withholding field without a new verification
+date automatically removes the current revision link and deactivates the product.
+
 ### 2.1a Labels use different units and starting points
 
 "A number of days after treatment" is not a general model for milk withholding. The

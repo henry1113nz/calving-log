@@ -584,8 +584,8 @@ try {
   console.log();
   // v5 把参考数据核验从“提示”升级成发布门槛。只要启用的药有一条缺出处,
   // 脚本就以非零状态退出,不能再带着红色警告仍然声称数据库验证通过。
-  check('exactly five active drug references are available',
-    drugRows.length === 5, `${drugRows.length} active drug(s)`);
+  check('the five baseline active drug references are available',
+    drugRows.length >= 5, `${drugRows.length} active drug(s)`);
   check('every active drug has complete verified ACVM provenance',
     unverified.length === 0,
     unverified.length
@@ -615,11 +615,11 @@ try {
     SELECT drug_name, verified_on, current_reference_revision_id
     FROM drugs WHERE is_active = 0
   `).all();
-  check('Bovaclox DC Xtra is the sole inactive, unverified retained product',
-    inactiveRows.length === 1
-      && inactiveRows[0].drug_name === 'Bovaclox DC Xtra'
-      && inactiveRows[0].verified_on === null
-      && inactiveRows[0].current_reference_revision_id === null,
+  const inactiveBovaclox = inactiveRows.find(row => row.drug_name === 'Bovaclox DC Xtra');
+  check('Bovaclox DC Xtra remains inactive and unverified while other drafts are allowed',
+    inactiveBovaclox
+      && inactiveBovaclox.verified_on === null
+      && inactiveBovaclox.current_reference_revision_id === null,
     JSON.stringify(inactiveRows));
 
   const byName = Object.fromEntries(drugRows.map(d => [d.drug_name, d]));

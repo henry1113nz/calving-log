@@ -738,6 +738,92 @@ async function run() {
     res.status === 201 && res.body.withdrawal_end_date === '2026-09-05',
     JSON.stringify(res.body));
 
+  // ------------------------------------------------ medicine reference management
+  heading('Medicine reference management');
+
+  res = await call('POST', '/api/drugs', {
+    drug_name: 'Week Nine Test Medicine',
+    active_ingredient: 'Test ingredient',
+    milk_withdrawal_value: 4,
+    milk_withdrawal_unit: 'milkings',
+    meat_withdrawal_days: 2,
+    calculation_basis: 'treatment_date',
+    is_active: false
+  });
+  const managedDrugId = res.body && res.body.id;
+  assert('an owner can add a medicine as an inactive draft',
+    res.status === 201 && res.body.is_active === 0 && res.body.verified_on === null,
+    JSON.stringify(res.body));
+
+  res = await call('PUT', `/api/drugs/${managedDrugId}`, { is_active: true });
+  assert('an incomplete medicine cannot be activated',
+    res.status === 400 && /verified ACVM evidence/i.test(res.body.error), JSON.stringify(res.body));
+
+  res = await call('PUT', `/api/drugs/${managedDrugId}`, {
+    drug_name: 'Week Nine Test Medicine',
+    active_ingredient: 'Test ingredient',
+    milk_withdrawal_value: 4,
+    milk_withdrawal_unit: 'milkings',
+    meat_withdrawal_days: 2,
+    calculation_basis: 'treatment_date',
+    minimum_dry_period_days: null,
+    whp_depends_on_dose: false,
+    requires_regimen: false,
+    acvm_registration_no: 'A-WEEK9-TEST',
+    label_revision: 'A-WEEK9-TEST-1',
+    label_wording: 'Discard milk for four milkings after the last treatment.',
+    source_reference: 'https://example.govt.nz/week-nine-test-label',
+    verified_on: '2026-09-21',
+    verified_by: 'API test verifier',
+    is_active: true
+  });
+  assert('complete evidence creates an immutable revision and permits activation',
+    res.status === 200 && res.body.is_active === 1
+      && Number.isInteger(res.body.current_reference_revision_id), JSON.stringify(res.body));
+
+  res = await call('GET', '/api/drugs');
+  assert('a newly verified active medicine becomes available for treatment entry',
+    res.status === 200 && res.body.some(drug => drug.id === managedDrugId && drug.is_verified),
+    JSON.stringify(res.body.map(drug => drug.drug_name)));
+
+  res = await call('PUT', `/api/drugs/${managedDrugId}`, {
+    milk_withdrawal_value: 5,
+    acvm_registration_no: 'A-WEEK9-TEST',
+    label_revision: 'A-WEEK9-TEST-1',
+    label_wording: 'Discard milk for four milkings after the last treatment.',
+    source_reference: 'https://example.govt.nz/week-nine-test-label',
+    verified_on: '2026-09-21',
+    verified_by: 'API test verifier',
+    is_active: true
+  });
+  assert('changed safety-critical data cannot reuse the previous verified label revision',
+    res.status === 409 && /new label_revision/i.test(res.body.error), JSON.stringify(res.body));
+
+  res = await call('PUT', `/api/drugs/${managedDrugId}`, {
+    active_ingredient: 'Corrected test ingredient'
+  });
+  assert('changing safety-critical medicine data removes verification and deactivates it',
+    res.status === 200 && res.body.is_active === 0 && res.body.verified_on === null
+      && res.body.current_reference_revision_id === null, JSON.stringify(res.body));
+
+  res = await call('POST', '/api/drugs', {
+    drug_name: 'Week Nine Regimen Draft',
+    active_ingredient: 'Test regimen ingredient',
+    milk_withdrawal_value: 4,
+    milk_withdrawal_unit: 'milkings',
+    calculation_basis: 'treatment_date',
+    requires_regimen: true,
+    acvm_registration_no: 'A-WEEK9-RULE',
+    label_revision: 'A-WEEK9-RULE-1',
+    label_wording: 'Select the applicable labelled regimen.',
+    source_reference: 'https://example.govt.nz/week-nine-regimen-label',
+    verified_on: '2026-09-21',
+    verified_by: 'API test verifier',
+    is_active: true
+  });
+  assert('a new regimen-based medicine cannot activate before its rules exist',
+    res.status === 400 && /regimen rules/i.test(res.body.error), JSON.stringify(res.body));
+
   // ------------------------------------------------------------------- SCC
   heading('SCC records');
 
@@ -893,6 +979,12 @@ async function run() {
     name: 'Unauthorised', username: 'unauthorised', password: 'password-2026', role: 'milker'
   });
   assert('a milker cannot create another account', res.status === 403);
+
+  res = await call('POST', '/api/drugs', {
+    drug_name: 'Milker must not add this', milk_withdrawal_value: 0,
+    milk_withdrawal_unit: 'days', calculation_basis: 'treatment_date'
+  });
+  assert('a milker cannot add a medicine reference', res.status === 403);
 
   res = await call('POST', '/api/feedback', {
     area: 'overall', task_code: 'overall_walkthrough', completion_status: 'completed',

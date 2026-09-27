@@ -445,6 +445,179 @@ app.get('/api/drugs/reference-status', (req, res) => {
   });
 });
 
+function cleanDrugText(value) {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
+function drugBoolean(value) {
+  return value === true || value === 1 || value === '1';
+}
+
+function drugInteger(value, field, { nullable = false } = {}) {
+  if (nullable && (value === null || value === undefined || value === '')) return null;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) {
+    return { error: `${field} must be a non-negative whole number` };
+  }
+  return number;
+}
+
+function validateDrugReference(drug) {
+  if (!['hours', 'days', 'milkings'].includes(drug.milk_withdrawal_unit)) {
+    return "milk_withdrawal_unit must be 'hours', 'days' or 'milkings'";
+  }
+  if (!['treatment_date', 'calving_date'].includes(drug.calculation_basis)) {
+    return "calculation_basis must be 'treatment_date' or 'calving_date'";
+  }
+  if (drug.minimum_dry_period_days !== null && drug.calculation_basis !== 'calving_date') {
+    return 'minimum_dry_period_days only applies to drugs counted from the calving date';
+  }
+  if (drug.verified_on && !canonicalDate(drug.verified_on)) {
+    return 'verified_on must be a real date in YYYY-MM-DD format';
+  }
+  if (drug.verified_on && !(
+    drug.acvm_registration_no && drug.label_revision && drug.label_wording &&
+    drug.source_reference && drug.verified_by
+  )) {
+    return 'A drug cannot be marked as verified without ACVM registration number, ' +
+      'label revision, label wording, source reference and verified_by';
+  }
+  if (drug.verified_on && !/^https:\/\//i.test(drug.source_reference)) {
+    return 'A verified medicine source_reference must be an HTTPS official source';
+  }
+  if (drug.is_active && !drug.verified_on) {
+    return 'An active medicine must have complete verified ACVM evidence';
+  }
+  return null;
+}
+
+function drugIdentityConflict(drug, excludedId = null) {
+  const nameClash = db.prepare(`
+    SELECT id FROM drugs WHERE lower(drug_name) = lower(?) AND (? IS NULL OR id != ?)
+  `).get(drug.drug_name, excludedId, excludedId);
+  if (nameClash) return `Medicine name '${drug.drug_name}' already exists`;
+  if (!drug.acvm_registration_no) return null;
+  const registrationClash = db.prepare(`
+    SELECT id FROM drugs WHERE acvm_registration_no = ? AND (? IS NULL OR id != ?)
+  `).get(drug.acvm_registration_no, excludedId, excludedId);
+  return registrationClash
+    ? `ACVM registration ${drug.acvm_registration_no} is already used by another medicine`
+    : null;
+}
+
+function insertDrugRevision(drugId, drug) {
+  if (!drug.verified_on) return null;
+  const existingRevision = db.prepare(`
+    SELECT * FROM drug_reference_revisions WHERE drug_id = ? AND label_revision = ?
+  `).get(drugId, drug.label_revision);
+  if (existingRevision) {
+    if (
+      existingRevision.acvm_registration_no !== drug.acvm_registration_no ||
+      existingRevision.label_wording !== drug.label_wording ||
+      existingRevision.source_reference !== drug.source_reference ||
+      existingRevision.verified_on !== drug.verified_on ||
+      existingRevision.verified_by !== drug.verified_by
+    ) {
+      const error = new Error('A stored label revision is immutable; use a new label_revision for changed evidence');
+      error.statusCode = 409;
+      throw error;
+    }
+    return existingRevision.id;
+  }
+  const inserted = db.prepare(`
+    INSERT INTO drug_reference_revisions
+      (drug_id, acvm_registration_no, label_revision, label_wording,
+       source_reference, verified_on, verified_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    drugId, drug.acvm_registration_no, drug.label_revision, drug.label_wording,
+    drug.source_reference, drug.verified_on, drug.verified_by
+  );
+  return Number(inserted.lastInsertRowid);
+}
+
+function regimenActivationError(drugId, revisionId, requiresRegimen, isActive) {
+  if (!isActive || !requiresRegimen) return null;
+  const count = revisionId ? db.prepare(`
+    SELECT COUNT(*) AS count FROM drug_withdrawal_rules
+    WHERE drug_id = ? AND reference_revision_id = ?
+  `).get(drugId, revisionId).count : 0;
+  return count > 0
+    ? null
+    : 'A regimen-based medicine cannot be activated until its labelled regimen rules are recorded';
+}
+
+// 新药先是一个可追踪的草稿。录入并不等于核验；只有完整证据通过门禁后,
+// Owner 或 Vet 才能把它放进治疗选择中。
+app.post('/api/drugs', requireRole('owner', 'vet'), (req, res) => {
+  const milkValue = drugInteger(req.body?.milk_withdrawal_value, 'milk_withdrawal_value');
+  const meatDays = drugInteger(req.body?.meat_withdrawal_days, 'meat_withdrawal_days', { nullable: true });
+  const dryDays = drugInteger(req.body?.minimum_dry_period_days, 'minimum_dry_period_days', { nullable: true });
+  const numericError = [milkValue, meatDays, dryDays].find(value => value && value.error);
+  if (numericError) return res.status(400).json({ error: numericError.error });
+
+  const drug = {
+    drug_name: cleanDrugText(req.body?.drug_name),
+    active_ingredient: cleanDrugText(req.body?.active_ingredient),
+    milk_withdrawal_value: milkValue,
+    milk_withdrawal_unit: cleanDrugText(req.body?.milk_withdrawal_unit) || 'days',
+    meat_withdrawal_days: meatDays,
+    calculation_basis: cleanDrugText(req.body?.calculation_basis) || 'treatment_date',
+    minimum_dry_period_days: dryDays,
+    whp_depends_on_dose: drugBoolean(req.body?.whp_depends_on_dose),
+    requires_regimen: drugBoolean(req.body?.requires_regimen),
+    acvm_registration_no: cleanDrugText(req.body?.acvm_registration_no),
+    label_revision: cleanDrugText(req.body?.label_revision),
+    label_wording: cleanDrugText(req.body?.label_wording),
+    source_reference: cleanDrugText(req.body?.source_reference),
+    verified_on: cleanDrugText(req.body?.verified_on),
+    verified_by: cleanDrugText(req.body?.verified_by),
+    is_active: drugBoolean(req.body?.is_active)
+  };
+  if (!drug.drug_name) return res.status(400).json({ error: 'drug_name is required' });
+  const validationError = validateDrugReference(drug) || drugIdentityConflict(drug);
+  if (validationError) return res.status(400).json({ error: validationError });
+  if (drug.is_active && drug.requires_regimen) {
+    return res.status(400).json({
+      error: 'A new regimen-based medicine must be saved inactive until its labelled regimen rules are recorded'
+    });
+  }
+
+  try {
+    const created = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO drugs
+          (drug_name, active_ingredient, milk_withdrawal_value, milk_withdrawal_unit,
+           meat_withdrawal_days, calculation_basis, minimum_dry_period_days,
+           whp_depends_on_dose, requires_regimen, acvm_registration_no, label_revision,
+           label_wording, source_reference, verified_on, verified_by, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        drug.drug_name, drug.active_ingredient, drug.milk_withdrawal_value,
+        drug.milk_withdrawal_unit, drug.meat_withdrawal_days, drug.calculation_basis,
+        drug.minimum_dry_period_days, drug.whp_depends_on_dose ? 1 : 0,
+        drug.requires_regimen ? 1 : 0, drug.acvm_registration_no, drug.label_revision,
+        drug.label_wording, drug.source_reference, drug.verified_on, drug.verified_by,
+        drug.is_active ? 1 : 0
+      );
+      const id = Number(result.lastInsertRowid);
+      const revisionId = insertDrugRevision(id, drug);
+      if (revisionId) {
+        db.prepare('UPDATE drugs SET current_reference_revision_id = ? WHERE id = ?')
+          .run(revisionId, id);
+      }
+      return db.prepare('SELECT * FROM drugs WHERE id = ?').get(id);
+    })();
+    res.status(201).json(created);
+  } catch (error) {
+    if (error.statusCode || String(error.code || '').startsWith('SQLITE_CONSTRAINT')) {
+      return res.status(error.statusCode || 400).json({ error: error.message });
+    }
+    throw error;
+  }
+});
+
 // 录入核实过的停药期数据。
 //
 // 核实的意思是"查过官方来源",不是"填过数字"。所以标记 verified_on 的同时
@@ -458,58 +631,63 @@ app.put('/api/drugs/:id', requireRole('owner', 'vet'), (req, res) => {
 
   const supplied = field => Object.prototype.hasOwnProperty.call(req.body, field);
   const value = field => supplied(field) ? req.body[field] : existing[field];
+  const milkValue = drugInteger(value('milk_withdrawal_value'), 'milk_withdrawal_value');
+  const meatDays = drugInteger(value('meat_withdrawal_days'), 'meat_withdrawal_days', { nullable: true });
+  const dryDays = drugInteger(value('minimum_dry_period_days'), 'minimum_dry_period_days', { nullable: true });
+  const numericError = [milkValue, meatDays, dryDays].find(result => result && result.error);
+  if (numericError) return res.status(400).json({ error: numericError.error });
   const updated = {
-    milk_withdrawal_value: value('milk_withdrawal_value'),
-    milk_withdrawal_unit: value('milk_withdrawal_unit'),
-    meat_withdrawal_days: value('meat_withdrawal_days'),
-    calculation_basis: value('calculation_basis'),
-    minimum_dry_period_days: value('minimum_dry_period_days'),
-    whp_depends_on_dose: value('whp_depends_on_dose'),
-    requires_regimen: value('requires_regimen'),
-    acvm_registration_no: value('acvm_registration_no'),
-    label_revision: value('label_revision'),
-    label_wording: value('label_wording'),
-    source_reference: value('source_reference'),
-    verified_on: value('verified_on'),
-    verified_by: value('verified_by')
+    drug_name: cleanDrugText(value('drug_name')),
+    active_ingredient: cleanDrugText(value('active_ingredient')),
+    milk_withdrawal_value: milkValue,
+    milk_withdrawal_unit: cleanDrugText(value('milk_withdrawal_unit')),
+    meat_withdrawal_days: meatDays,
+    calculation_basis: cleanDrugText(value('calculation_basis')),
+    minimum_dry_period_days: dryDays,
+    whp_depends_on_dose: drugBoolean(value('whp_depends_on_dose')),
+    requires_regimen: drugBoolean(value('requires_regimen')),
+    acvm_registration_no: cleanDrugText(value('acvm_registration_no')),
+    label_revision: cleanDrugText(value('label_revision')),
+    label_wording: cleanDrugText(value('label_wording')),
+    source_reference: cleanDrugText(value('source_reference')),
+    verified_on: cleanDrugText(value('verified_on')),
+    verified_by: cleanDrugText(value('verified_by')),
+    is_active: supplied('is_active') ? drugBoolean(req.body.is_active) : Boolean(existing.is_active)
   };
 
   const criticalFields = [
+    'drug_name', 'active_ingredient',
     'milk_withdrawal_value', 'milk_withdrawal_unit', 'meat_withdrawal_days',
     'calculation_basis', 'minimum_dry_period_days', 'whp_depends_on_dose',
     'requires_regimen', 'acvm_registration_no', 'label_revision'
   ];
-  const criticalChanged = criticalFields.some(field => supplied(field) && updated[field] !== existing[field]);
+  const criticalChanged = criticalFields.some(field => {
+    if (!supplied(field)) return false;
+    if (field === 'whp_depends_on_dose' || field === 'requires_regimen') {
+      return Number(updated[field]) !== Number(existing[field]);
+    }
+    return updated[field] !== existing[field];
+  });
   if (criticalChanged && !supplied('verified_on')) {
     updated.verified_on = null;
     updated.verified_by = null;
+    updated.is_active = false;
   }
 
-  if (!['hours', 'days', 'milkings'].includes(updated.milk_withdrawal_unit)) {
-    return res.status(400).json({ error: "milk_withdrawal_unit must be 'hours', 'days' or 'milkings'" });
-  }
-
-  if (updated.verified_on && !(
-    updated.acvm_registration_no && updated.label_revision && updated.label_wording &&
-    updated.source_reference && updated.verified_by
-  )) {
-    return res.status(400).json({
-      error: 'A drug cannot be marked as verified without ACVM registration number, ' +
-             'label revision, label wording, source reference and verified_by'
-    });
-  }
-
-  if (updated.minimum_dry_period_days !== null && updated.calculation_basis !== 'calving_date') {
-    return res.status(400).json({
-      error: 'minimum_dry_period_days only applies to drugs counted from the calving date'
-    });
-  }
+  if (!updated.drug_name) return res.status(400).json({ error: 'drug_name is required' });
+  const validationError = validateDrugReference(updated) || drugIdentityConflict(updated, existing.id);
+  if (validationError) return res.status(400).json({ error: validationError });
 
   let existingRevision = null;
   if (updated.verified_on) {
     existingRevision = db.prepare(`
       SELECT * FROM drug_reference_revisions WHERE drug_id = ? AND label_revision = ?
     `).get(existing.id, updated.label_revision);
+    if (criticalChanged && existingRevision) {
+      return res.status(409).json({
+        error: 'Safety-critical medicine data changed; use a new label_revision or save it unverified and inactive'
+      });
+    }
     if (existingRevision && (
       existingRevision.acvm_registration_no !== updated.acvm_registration_no ||
       existingRevision.label_wording !== updated.label_wording ||
@@ -523,52 +701,55 @@ app.put('/api/drugs/:id', requireRole('owner', 'vet'), (req, res) => {
     }
   }
 
-  db.transaction(() => {
-    let revisionId = criticalChanged ? null : existing.current_reference_revision_id;
-    if (updated.verified_on) {
-      if (!existingRevision) {
-        const inserted = db.prepare(`
-          INSERT INTO drug_reference_revisions
-            (drug_id, acvm_registration_no, label_revision, label_wording,
-             source_reference, verified_on, verified_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          existing.id, updated.acvm_registration_no, updated.label_revision,
-          updated.label_wording, updated.source_reference, updated.verified_on,
-          updated.verified_by
-        );
-        revisionId = Number(inserted.lastInsertRowid);
-      } else {
-        revisionId = existingRevision.id;
+  try {
+    db.transaction(() => {
+      let revisionId = criticalChanged ? null : existing.current_reference_revision_id;
+      if (updated.verified_on) revisionId = insertDrugRevision(existing.id, updated);
+      const activationError = regimenActivationError(
+        existing.id, revisionId, updated.requires_regimen, updated.is_active
+      );
+      if (activationError) {
+        const error = new Error(activationError);
+        error.statusCode = 400;
+        throw error;
       }
-    }
 
-    db.prepare(`
-      UPDATE drugs
-      SET milk_withdrawal_value = ?, milk_withdrawal_unit = ?, meat_withdrawal_days = ?,
-          calculation_basis = ?, minimum_dry_period_days = ?, whp_depends_on_dose = ?,
-          requires_regimen = ?, acvm_registration_no = ?, label_revision = ?,
-          label_wording = ?, source_reference = ?, verified_on = ?, verified_by = ?,
-          current_reference_revision_id = ?
-      WHERE id = ?
-    `).run(
-      updated.milk_withdrawal_value,
-      updated.milk_withdrawal_unit,
-      updated.meat_withdrawal_days,
-      updated.calculation_basis,
-      updated.minimum_dry_period_days,
-      updated.whp_depends_on_dose ? 1 : 0,
-      updated.requires_regimen ? 1 : 0,
-      updated.acvm_registration_no,
-      updated.label_revision,
-      updated.label_wording,
-      updated.source_reference,
-      updated.verified_on,
-      updated.verified_by,
-      revisionId,
-      req.params.id
-    );
-  })();
+      db.prepare(`
+        UPDATE drugs
+        SET drug_name = ?, active_ingredient = ?,
+            milk_withdrawal_value = ?, milk_withdrawal_unit = ?, meat_withdrawal_days = ?,
+            calculation_basis = ?, minimum_dry_period_days = ?, whp_depends_on_dose = ?,
+            requires_regimen = ?, acvm_registration_no = ?, label_revision = ?,
+            label_wording = ?, source_reference = ?, verified_on = ?, verified_by = ?,
+            current_reference_revision_id = ?, is_active = ?
+        WHERE id = ?
+      `).run(
+        updated.drug_name,
+        updated.active_ingredient,
+        updated.milk_withdrawal_value,
+        updated.milk_withdrawal_unit,
+        updated.meat_withdrawal_days,
+        updated.calculation_basis,
+        updated.minimum_dry_period_days,
+        updated.whp_depends_on_dose ? 1 : 0,
+        updated.requires_regimen ? 1 : 0,
+        updated.acvm_registration_no,
+        updated.label_revision,
+        updated.label_wording,
+        updated.source_reference,
+        updated.verified_on,
+        updated.verified_by,
+        revisionId,
+        updated.is_active ? 1 : 0,
+        req.params.id
+      );
+    })();
+  } catch (error) {
+    if (error.statusCode || String(error.code || '').startsWith('SQLITE_CONSTRAINT')) {
+      return res.status(error.statusCode || 400).json({ error: error.message });
+    }
+    throw error;
+  }
 
   res.json(db.prepare('SELECT * FROM drugs WHERE id = ?').get(req.params.id));
 });
