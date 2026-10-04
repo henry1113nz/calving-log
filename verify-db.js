@@ -84,7 +84,7 @@ try {
     `user_version=${version}, expected ${LATEST_VERSION}`);
 
   const expectedTables = [
-    'auth_sessions',
+    'auth_sessions', 'account_actions',
     'cows', 'drugs', 'drug_reference_revisions', 'drug_withdrawal_rules',
     'dry_off_decisions', 'event_corrections', 'event_reviews', 'farm_settings',
     'field_feedback', 'health_events', 'reference_data_imports', 'milking_schedule', 'scc_records',
@@ -139,9 +139,12 @@ try {
     `withdrawal_corrections: ${correctionColumns.join(', ')}; ` +
       `reference_data_imports: ${importColumns.join(', ')}`);
   check('users and sessions support server-side authentication',
-    ['username', 'password_salt', 'password_hash'].every(c => userColumns.includes(c))
+    ['username', 'password_salt', 'password_hash', 'is_active'].every(c => userColumns.includes(c))
       && ['token_hash', 'user_id', 'expires_at'].every(c => sessionColumns.includes(c)),
     `users: ${userColumns.join(', ')}; auth_sessions: ${sessionColumns.join(', ')}`);
+  check('at least one active owner remains', db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'owner' AND is_active = 1").get().count > 0);
+  check('account access changes retain reasons and actor references',
+    ['user_id', 'action', 'reason', 'performed_by', 'created_at'].every(c => columnsOf('account_actions').includes(c)));
   check('operational corrections retain before/after evidence and the accountable actor',
     ['health_event_id', 'reason', 'previous_snapshot', 'corrected_snapshot',
       'corrected_by', 'corrected_at'].every(c => eventCorrectionColumns.includes(c)),

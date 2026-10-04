@@ -24,7 +24,7 @@ test('October package adds exactly three verified products without rewriting exi
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM drugs WHERE is_active = 1').get().count, 11);
     assert.deepEqual(db.prepare('SELECT * FROM health_events ORDER BY id').all(), history);
     assert.deepEqual(db.prepare('SELECT * FROM withdrawal_corrections ORDER BY id').all(), corrections);
-    assert.equal(db.pragma('user_version', { simple: true }), 9);
+    assert.equal(db.pragma('user_version', { simple: true }), require('./migrate').LATEST_VERSION);
     assert.deepEqual(db.pragma('foreign_key_check'), []);
   } finally { db.close(); }
 });

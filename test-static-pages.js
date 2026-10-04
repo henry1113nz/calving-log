@@ -5,6 +5,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 const root = path.join(__dirname, 'public');
 
+test('all shipped pages and browser scripts use English interface text', () => {
+  const files = fs.readdirSync(root).filter(name => name.endsWith('.html')).map(name => path.join(root, name));
+  files.push(...fs.readdirSync(path.join(root, 'assets')).filter(name => /\.(js|css)$/.test(name)).map(name => path.join(root, 'assets', name)));
+  for (const file of files) assert.ok(!/\p{Script=Han}/u.test(fs.readFileSync(file, 'utf8')), `Chinese interface text in ${file}`);
+  const chat = fs.readFileSync(path.join(root, 'assistant.html'), 'utf8');
+  assert.match(chat, /<option value="en" selected>English/);
+});
+
 test('all frontend scripts parse without JavaScript syntax errors', () => {
   for (const filename of fs.readdirSync(path.join(root, 'assets')).filter(name => name.endsWith('.js'))) {
     const code = fs.readFileSync(path.join(root, 'assets', filename), 'utf8');

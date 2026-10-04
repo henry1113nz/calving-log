@@ -11,7 +11,7 @@
   <div class="app-shell">
     <div class="app-main">
       <header class="page-header">
-        <div><p class="eyebrow">Identity and security</p><h1 class="page-title">Account</h1><p class="page-subtitle">Review the signed-in identity, change this account's password, and give trial participants their own sign-in.</p></div>
+        <div><p class="eyebrow">Identity and security</p><h1 class="page-title">Account</h1><p class="page-subtitle">Review your sign-in and change your password. Owners can also manage farm access.</p></div>
       </header>
       <main class="page-content stack">
         <div class="grid grid-2">
@@ -39,8 +39,9 @@
         </section>
 
         <section class="card" id="people-card" hidden>
-          <div class="card-head"><div><h2 class="card-title">Sign-ins for field testing</h2><p class="card-subtitle">Owner only. Give each trial participant a relief-milker sign-in instead of sharing the owner password.</p></div></div>
+          <div class="card-head"><div><h2 class="card-title">Manage sign-ins</h2><p class="card-subtitle">Owner only. Use a separate account for each person. Do not share an owner sign-in.</p></div></div>
           <p class="notice info">A relief milker can record events and give feedback, but cannot verify a medicine, change the milking schedule, correct history or make a final dry-off decision. Use a role name such as “Farm participant 1”; do not enter a participant's real name or contact details.</p>
+          <details class="account-access"><summary>Create a new sign-in</summary>
           <form id="people-form">
             <div class="form-grid">
               <div class="field"><label for="person-name">Display name</label><input id="person-name" type="text" maxlength="60" required placeholder="Farm participant 1"></div>
@@ -52,12 +53,29 @@
                   <option value="owner">Farm owner</option>
                 </select>
               </div>
-              <div class="field"><label for="person-password">Temporary password</label><input id="person-password" type="password" autocomplete="new-password" minlength="12" required><span class="hint">At least 12 characters. Hand it over in person and ask them to change it on this page.</span></div>
+              <div class="field"><label for="person-password">Temporary password</label><input id="person-password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required><span class="hint">At least 12 characters. Hand it over in person and ask them to change it on this page.</span></div>
             </div>
             <div class="form-actions"><button class="btn" id="people-submit" type="submit">Create sign-in</button></div>
           </form>
           <div id="people-notice" style="margin-top:14px" hidden></div>
+          </details>
           <div id="people-list" class="loading" style="margin-top:16px">Loading sign-ins…</div>
+          <details class="account-access" id="access-panel">
+            <summary>Disable, restore or reset a sign-in</summary>
+            <p class="hint">Disabling closes existing sessions but keeps historical records and attribution. You cannot disable your own account. Password resets do not enable a disabled account.</p>
+            <form id="access-form">
+              <div class="form-grid">
+                <div class="field"><label for="access-user">Account</label><select id="access-user" required><option value="">Choose an account</option></select></div>
+                <div class="field"><label for="access-action">Action</label><select id="access-action"><option value="disable">Disable sign-in</option><option value="enable">Restore sign-in</option><option value="reset_password">Reset password</option></select></div>
+                <div class="field"><label for="access-owner-password">Your current owner password</label><input id="access-owner-password" type="password" autocomplete="current-password" maxlength="256" required></div>
+                <div class="field" id="access-temporary-field" hidden><label for="access-temporary-password">New temporary password</label><input id="access-temporary-password" type="password" autocomplete="new-password" minlength="12" maxlength="256"></div>
+                <div class="field span-2"><label for="access-reason">Reason for this change</label><input id="access-reason" minlength="5" maxlength="500" required placeholder="For example: the trial session has finished"></div>
+              </div>
+              <div class="form-actions"><button class="btn" id="access-submit" type="submit">Confirm account change</button></div>
+            </form>
+            <div id="access-notice" role="status" style="margin-top:14px" hidden></div>
+          </details>
+          <details class="account-access"><summary>Recent account changes</summary><div id="account-actions" class="loading">Loading account history…</div></details>
         </section>
       </main>
     </div>

@@ -1,0 +1,25 @@
+name: Quality checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  release-check:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      CALVING_LOG_DB: /tmp/calvinglog-ci.db
+      AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Initialise an isolated check database
+        run: node -e "require('./db').close()"
+      - run: npm run release-check
+      - run: npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org

@@ -490,6 +490,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 
 /* Conversation stays focused; configuration and recording have separate pages. */
 .chat-page { max-width: 1160px; }
+.account-access { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.account-access summary { cursor: pointer; font-weight: 750; color: var(--forest-700); }
+.account-access form, .account-access .list { margin-top: 16px; }
 .chat-messages { display: grid; gap: 16px; min-height: 110px; padding: 8px 0; }
 .chat-welcome { margin: auto; padding: 12px; color: var(--muted); text-align: center; max-width: 660px; }
 .chat-welcome h3 { margin: 0 0 6px; color: var(--ink); }

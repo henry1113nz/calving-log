@@ -1,4 +1,5 @@
 const express = require('express');
+const { webSecurity } = require('./webSecurity');
 const db = require('./db');
 const { addDays, calculateWithdrawal, toDays } = require('./withdrawalCalculator');
 const { recommendDryOffTreatment } = require('./dryOffAdvisor');
@@ -15,17 +16,13 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
-app.use(express.json());
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'same-origin');
-  next();
-});
+app.use(webSecurity);
+app.use(express.json({ limit: '64kb' }));
 app.use(express.static('public'));
 
 const authRequired = requireAuth(db);
 const loginAttempts = new Map();
+const loginIpAttempts = new Map();
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
 
@@ -35,9 +32,19 @@ app.get('/api/health', (req, res) => {
 
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body || {};
+  if (typeof username !== 'string' || username.length > 40 || typeof password !== 'string'
+    || password.length > 256) return res.status(401).json({ error: 'Invalid username or password' });
   const cleanUsername = String(username || '').trim();
   const attemptKey = `${req.ip}:${cleanUsername.toLowerCase()}`;
   const now = Date.now();
+  for (const store of [loginAttempts, loginIpAttempts]) {
+    for (const [key, value] of store) if (value.resetAt <= now) store.delete(key);
+  }
+  const ipAttempt = loginIpAttempts.get(req.ip);
+  if (ipAttempt?.count >= 100 || loginAttempts.size >= 5000 && !loginAttempts.has(attemptKey)) {
+    res.setHeader('Retry-After', '900');
+    return res.status(429).json({ error: 'Too many sign-in attempts. Try again in 15 minutes.' });
+  }
   const previous = loginAttempts.get(attemptKey);
   if (previous && previous.resetAt > now && previous.count >= LOGIN_MAX_ATTEMPTS) {
     res.setHeader('Retry-After', Math.ceil((previous.resetAt - now) / 1000));
@@ -48,12 +55,13 @@ app.post('/api/auth/login', (req, res) => {
   const user = cleanUsername
     ? db.prepare('SELECT * FROM users WHERE username = ?').get(cleanUsername)
     : null;
-  if (!user || !verifyPassword(password, user)) {
+  if (!user || !user.is_active || !verifyPassword(password, user)) {
     const current = loginAttempts.get(attemptKey);
     loginAttempts.set(attemptKey, {
       count: (current?.count || 0) + 1,
       resetAt: current?.resetAt || now + LOGIN_WINDOW_MS
     });
+    loginIpAttempts.set(req.ip, { count: (ipAttempt?.count || 0) + 1, resetAt: ipAttempt?.resetAt || now + LOGIN_WINDOW_MS });
     return res.status(401).json({ error: 'Invalid username or password' });
   }
   loginAttempts.delete(attemptKey);
@@ -83,8 +91,8 @@ app.post('/api/auth/change-password', (req, res) => {
   if (!verifyPassword(currentPassword, user)) {
     return res.status(400).json({ error: 'Current password is incorrect' });
   }
-  if (newPassword.length < 12) {
-    return res.status(400).json({ error: 'New password must contain at least 12 characters' });
+  if (newPassword.length < 12 || newPassword.length > 256) {
+    return res.status(400).json({ error: 'New password must contain 12 to 256 characters' });
   }
   if (verifyPassword(newPassword, user)) {
     return res.status(400).json({ error: 'Choose a new password that is different from the current password' });
@@ -1646,7 +1654,7 @@ app.post('/api/assistant/chat/clear', (req, res) => {
 app.post('/api/assistant/chat', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const question = req.body?.question;
-  const language = req.body?.language || 'auto';
+  const language = req.body?.language || 'en';
   const id = req.body?.conversation_id || null;
   if (typeof question !== 'string' || !question.trim() || question.length > 2000
     || !['auto', 'zh', 'en'].includes(language)
@@ -1812,9 +1820,9 @@ app.post('/api/reviews/:id/resolve', requireRole('owner', 'vet'), (req, res) => 
 
 // ---------- users ----------
 
-app.get('/api/users', (req, res) => {
+app.get('/api/users', requireRole('owner'), (req, res) => {
   const users = db.prepare(`
-    SELECT id, name, username, role, created_at FROM users ORDER BY name
+    SELECT id, name, username, role, is_active, created_at FROM users ORDER BY name
   `).all();
   res.json(users);
 });
@@ -1824,6 +1832,12 @@ app.post('/api/users', requireRole('owner'), (req, res) => {
 
   if (!name || !username || !password) {
     return res.status(400).json({ error: 'name, username and password are required' });
+  }
+
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 60
+    || !['owner', 'vet', 'milker'].includes(role || 'milker')
+    || typeof password !== 'string' || password.length < 12 || password.length > 256) {
+    return res.status(400).json({ error: 'Use a display name up to 60 characters, a valid role and a password of 12 to 256 characters.' });
   }
 
   let credentials;
@@ -1845,14 +1859,58 @@ app.post('/api/users', requireRole('owner'), (req, res) => {
     VALUES (?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
-    name, role || 'milker', cleanUsername,
+    name.trim(), role || 'milker', cleanUsername,
     credentials.password_salt, credentials.password_hash
   );
 
   const newUser = db.prepare(`
-    SELECT id, name, username, role, created_at FROM users WHERE id = ?
+    SELECT id, name, username, role, is_active, created_at FROM users WHERE id = ?
   `).get(result.lastInsertRowid);
   res.status(201).json(newUser);
+});
+
+app.get('/api/account-actions', requireRole('owner'), (req, res) => {
+  res.json(db.prepare(`SELECT account_actions.id, action, reason, account_actions.created_at,
+    target.username AS target_username, actor.username AS actor_username
+    FROM account_actions JOIN users target ON target.id = account_actions.user_id
+    JOIN users actor ON actor.id = account_actions.performed_by
+    ORDER BY account_actions.id DESC LIMIT 50`).all());
+});
+
+app.post('/api/users/:id/access', requireRole('owner'), (req, res) => {
+  const target = findOrNull('users', req.params.id);
+  if (!target) return res.status(404).json({ error: 'Account not found' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Use Change password for your own account. You cannot disable yourself.' });
+  const { action, current_password, temporary_password } = req.body || {};
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (!['disable', 'enable', 'reset_password'].includes(action) || reason.length < 5 || reason.length > 500) {
+    return res.status(400).json({ error: 'Choose an account action and give a reason of 5 to 500 characters.' });
+  }
+  const actor = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!verifyPassword(current_password, actor)) return res.status(403).json({ error: 'Confirm your current owner password to manage another account.' });
+  if (action === 'disable' && target.role === 'owner' && target.is_active
+    && db.prepare("SELECT count(*) AS n FROM users WHERE role = 'owner' AND is_active = 1").get().n <= 1) {
+    return res.status(409).json({ error: 'At least one active owner must remain.' });
+  }
+  let credentials;
+  if (action === 'reset_password') {
+    if (typeof temporary_password !== 'string' || temporary_password.length < 12 || temporary_password.length > 256) {
+      return res.status(400).json({ error: 'Temporary password must contain 12 to 256 characters.' });
+    }
+    credentials = passwordFields(temporary_password);
+  }
+  db.transaction(() => {
+    if (credentials) db.prepare('UPDATE users SET password_salt = ?, password_hash = ? WHERE id = ?')
+      .run(credentials.password_salt, credentials.password_hash, target.id);
+    else db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(action === 'enable' ? 1 : 0, target.id);
+    db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(target.id);
+    db.prepare('INSERT INTO account_actions (user_id, action, reason, performed_by) VALUES (?, ?, ?, ?)')
+      .run(target.id, action, reason, req.user.id);
+  })();
+  res.json({ message: action === 'reset_password'
+    ? 'Password reset and existing sessions closed. Ask the user to change the temporary password after signing in. Disabled accounts remain disabled.'
+    : action === 'disable' ? 'Account disabled and sessions closed. Historical records are retained.'
+      : 'Account enabled. The user must sign in again.' });
 });
 
 // ---------- field usability feedback ----------
@@ -1936,6 +1994,9 @@ app.post('/api/scc', (req, res) => {
   if (!cow_id || !test_date || scc_value == null) {
     return res.status(400).json({ error: 'cow_id, test_date and scc_value are required' });
   }
+  if (!canonicalDate(test_date) || !Number.isFinite(Number(scc_value)) || Number(scc_value) < 0) {
+    return res.status(400).json({ error: 'Use a valid calendar date and a non-negative SCC value.' });
+  }
 
   const cow = db.prepare('SELECT * FROM cows WHERE id = ?').get(cow_id);
   if (!cow) {
@@ -1961,6 +2022,11 @@ function seasonDateRange(season) {
   return { start: `${startYear}-06-01`, end: `${startYear + 1}-05-31` };
 }
 
+function validSeason(season) {
+  return typeof season === 'string' && /^\d{4}-\d{2}$/.test(season)
+    && season.slice(5) === String((Number(season.slice(0, 4)) + 1) % 100).padStart(2, '0');
+}
+
 app.get('/api/cows/:id/dry-off-recommendation', (req, res) => {
   const cow = findOrNull('cows', req.params.id);
   if (!cow) {
@@ -1968,7 +2034,7 @@ app.get('/api/cows/:id/dry-off-recommendation', (req, res) => {
   }
 
   const season = req.query.season;
-  if (season && !/^\d{4}-\d{2}$/.test(season)) {
+  if (season && !validSeason(season)) {
     return res.status(400).json({ error: "season must look like '2026-27'" });
   }
   const range = season ? seasonDateRange(season) : null;
@@ -2028,14 +2094,19 @@ app.post('/api/decisions', requireRole('owner', 'vet'), (req, res) => {
   if (!cow_id || !season || !decision) {
     return res.status(400).json({ error: 'cow_id, season and decision are required' });
   }
+  if (!validSeason(season)) return res.status(400).json({ error: 'Use a consecutive season such as 2026-27.' });
 
   const cow = db.prepare('SELECT * FROM cows WHERE id = ?').get(cow_id);
   if (!cow) {
     return res.status(400).json({ error: 'cow_id does not match any known cow' });
   }
 
-  if (supporting_scc_id && !findOrNull('scc_records', supporting_scc_id)) {
-    return res.status(400).json({ error: 'supporting_scc_id does not match any known SCC record' });
+  if (supporting_scc_id) {
+    const supporting = findOrNull('scc_records', supporting_scc_id);
+    const range = seasonDateRange(season);
+    if (!supporting || supporting.cow_id !== cow.id || supporting.test_date < range.start || supporting.test_date > range.end) {
+      return res.status(400).json({ error: 'Supporting SCC evidence must belong to this cow and the selected season.' });
+    }
   }
 
 
@@ -2066,7 +2137,9 @@ app.post('/api/decisions', requireRole('owner', 'vet'), (req, res) => {
   res.status(201).json(newDecision);
 });
 
-// ---------- 全局错误处理 ----------
+app.use('/api', (req, res) => res.status(404).json({ error: 'API route not found' }));
+
+// ---------- global error handling ----------
 
 app.use((err, req, res, next) => {
   // 请求体解析失败是调用方发错了东西。返回 500 会让人以为系统坏了,也会把这类
@@ -2076,6 +2149,12 @@ app.use((err, req, res, next) => {
   }
   if (err?.type === 'entity.too.large') {
     return res.status(413).json({ error: 'Request body is too large' });
+  }
+  if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    return res.status(409).json({ error: 'This record already exists. Check the existing entry before trying again.' });
+  }
+  if (['SQLITE_CONSTRAINT_CHECK', 'SQLITE_CONSTRAINT_NOTNULL', 'SQLITE_CONSTRAINT_FOREIGNKEY'].includes(err?.code)) {
+    return res.status(400).json({ error: 'A value or linked record is invalid. Check the form fields and try again.' });
   }
   console.error(err);
   res.status(500).json({ error: 'Something went wrong on the server' });

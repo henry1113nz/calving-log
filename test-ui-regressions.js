@@ -72,6 +72,13 @@ test('unexpected HTML API responses produce a useful error rather than a later n
   const { api } = harness(() => response(null, 200, 'text/html'));
   await assert.rejects(api.requestJson('/api/cows'), /unexpected response/);
 });
+test('successful empty logout and delete responses do not become frontend errors', async () => {
+  for (const status of [204, 205]) {
+    const { api } = harness(() => ({ ok: true, status, headers: { get: () => 'application/json' },
+      json: async () => { throw new Error('Empty response must not be parsed'); } }));
+    assert.equal(await api.requestJson('/api/auth/logout', { method: 'POST' }), null);
+  }
+});
 test('date-only formatting stays UTC while audit timestamps are readable', () => {
   const { api } = harness();
   assert.match(api.formatDate('2026-10-04'), /4 October 2026/);
@@ -130,7 +137,7 @@ test('an older dry-off response cannot overwrite a newly selected cow’s eviden
 test('mobile actions stay available, default language is explicit, and the chat log has no inner scrollbar', () => {
   const html = fs.readFileSync(path.join(__dirname, 'public', 'assistant.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, 'public', 'assets', 'app.css'), 'utf8');
-  assert.match(html, /value="auto" selected/);
+  assert.match(html, /value="en" selected/);
   assert.ok(!css.includes('.page-actions { display: none; }'));
   const chatRule = css.match(/\.chat-messages \{([^}]+)\}/)[1];
   assert.ok(!chatRule.includes('overflow-y')); assert.ok(!chatRule.includes('max-height'));

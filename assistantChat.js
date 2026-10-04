@@ -63,7 +63,7 @@ function containsSecret(question) {
     || /(?:password|密码|api[_ -]?key|密钥)\s*[:：=]\s*\S{4,}/i.test(question);
 }
 
-async function generateChatReply({ question, history = [], role, language = 'auto', shareData = false,
+async function generateChatReply({ question, history = [], role, language = 'en', shareData = false,
   tools, takeBudget, env = process.env, fetchImpl = fetch, now = Date.now }) {
   const config = assistantConfig(env);
   if (!config.configured) throw failure(config.state);
@@ -144,7 +144,7 @@ function chatErrorCode(error) {
   return error?.aiCode || (['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout'
     : error instanceof SyntaxError ? 'invalid_response' : 'network_error');
 }
-function chatNotice(code, language = 'auto', question = '') {
+function chatNotice(code, language = 'en', question = '') {
   const zh = language === 'zh' || language === 'auto' && /[\u4e00-\u9fff]/.test(question);
   const specific = {
     sensitive_input: zh ? '问题可能包含密码或密钥，未发送给外部 AI。请删除敏感信息后重试。' : 'Possible password or API key detected. Nothing was sent to external AI. Remove sensitive details and retry.',

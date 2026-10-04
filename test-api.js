@@ -102,6 +102,17 @@ async function run() {
 
   res = await login('owner', 'incorrect-password');
   assert('login rejects an incorrect password', res.status === 401 && !sessionCookie);
+  res = await login('owner', 'short');
+  assert('a short login password is rejected without a server error', res.status === 401);
+  const cookies = await fetch(BASE + '/api/auth/me', { headers: { Cookie: 'unrelated=%E0%A4%A' } });
+  assert('a malformed unrelated cookie produces normal unauthenticated status', cookies.status === 401);
+  const crossOrigin = await fetch(BASE + '/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://other.example' },
+    body: JSON.stringify({ username: 'owner', password: 'calving-owner-2026' })
+  });
+  assert('cross-origin sign-in is blocked before a session is created', crossOrigin.status === 403 && !crossOrigin.headers.get('set-cookie'));
+  const securePage = await fetch(BASE + '/login.html');
+  assert('pages receive script and frame restrictions', /script-src 'self'/.test(securePage.headers.get('content-security-policy')) && securePage.headers.get('x-frame-options') === 'DENY');
 
   res = await login('owner', 'calving-owner-2026');
   const owner = res.body;
@@ -1079,6 +1090,12 @@ async function run() {
 
   // ------------------------------------------------------ dry-off decisions
   heading('Dry-off recommendation and decisions');
+  res = await call('POST', '/api/scc', { cow_id: newCowId, test_date: '2026-02-31', scc_value: 1000 });
+  assert('SCC records reject impossible calendar dates', res.status === 400);
+  res = await call('GET', `/api/cows/${newCowId}/dry-off-recommendation?season=2026-99`);
+  assert('dry-off review rejects a mismatched season end year', res.status === 400);
+  res = await call('POST', '/api/decisions', { cow_id: newCowId, season: '2026-99', decision: 'teat_seal_only' });
+  assert('dry-off decisions reject a mismatched season end year', res.status === 400);
 
   res = await call('GET', `/api/cows/${newCowId}/dry-off-recommendation?season=2026-27`);
   assert('a cow above the SCC threshold is recommended antibiotic therapy',
@@ -1110,6 +1127,10 @@ async function run() {
 
   res = await call('GET', '/api/cows/99999/dry-off-recommendation');
   assert('a recommendation for an unknown cow returns 404', res.status === 404);
+  res = await call('POST', '/api/decisions', { cow_id: cleanCow.id, season: '2026-27', decision: 'teat_seal_only', supporting_scc_id: sccId });
+  assert('a decision cannot link SCC evidence from a different cow', res.status === 400);
+  res = await call('POST', '/api/decisions', { cow_id: newCowId, season: '2025-26', decision: 'antibiotic_dct', supporting_scc_id: sccId });
+  assert('a decision cannot link SCC evidence from a different season', res.status === 400);
 
   res = await call('POST', '/api/decisions', {
     cow_id: newCowId, season: '2026-27', decision: 'antibiotic_dct',
@@ -1135,6 +1156,7 @@ async function run() {
   res = await call('POST', '/api/users', {
     name: 'Weekend Milker', username: 'weekend', password: 'weekend-2026', role: 'milker'
   });
+  const weekendId = res.body.id;
   assert('POST /api/users creates a credentialled user without exposing password fields',
     res.status === 201 && res.body.username === 'weekend'
       && !Object.hasOwn(res.body, 'password_hash') && !Object.hasOwn(res.body, 'password_salt'),
@@ -1152,6 +1174,42 @@ async function run() {
   assert('GET /api/users never exposes password salts or hashes',
     res.status === 200 && res.body.every(user => !Object.hasOwn(user, 'password_hash')
       && !Object.hasOwn(user, 'password_salt')), JSON.stringify(res.body));
+
+  res = await call('POST', `/api/users/${owner.id}/access`, { action: 'disable', current_password: 'calving-owner-2026', reason: 'Self disable attempt' });
+  assert('an owner cannot disable their own account', res.status === 400);
+  res = await call('POST', `/api/users/${weekendId}/access`, { action: 'disable', current_password: 'wrong-password', reason: 'Trial complete' });
+  assert('account access changes require owner password confirmation', res.status === 403);
+  res = await call('POST', `/api/users/${weekendId}/access`, { action: 'disable', current_password: 'calving-owner-2026', reason: 'no' });
+  assert('account access changes require an audit reason', res.status === 400);
+  const ownerCookie = sessionCookie;
+  await login('weekend', 'weekend-2026');
+  const oldWeekendCookie = sessionCookie;
+  sessionCookie = ownerCookie;
+  res = await call('POST', `/api/users/${weekendId}/access`, { action: 'disable', current_password: 'calving-owner-2026', reason: 'Trial has finished' });
+  assert('owner can disable a trial account without deleting it', res.status === 200);
+  sessionCookie = oldWeekendCookie;
+  res = await call('GET', '/api/auth/me');
+  assert('disabled accounts lose their existing sessions immediately', res.status === 401);
+  res = await login('weekend', 'weekend-2026');
+  assert('disabled accounts cannot sign in again', res.status === 401);
+  sessionCookie = ownerCookie;
+  res = await call('POST', `/api/users/${weekendId}/access`, { action: 'reset_password', current_password: 'calving-owner-2026', temporary_password: 'temporary-password-2026', reason: 'Reset for next trial' });
+  assert('owner can reset a disabled account password without enabling it', res.status === 200);
+  res = await call('GET', '/api/users');
+  assert('inactive account remains in the retained user list', res.body.some(user => user.id === weekendId && user.is_active === 0));
+  res = await call('POST', `/api/users/${weekendId}/access`, { action: 'enable', current_password: 'calving-owner-2026', reason: 'Next trial approved' });
+  assert('owner can restore an account', res.status === 200);
+  await login('weekend', 'weekend-2026');
+  assert('reset account old password no longer works', !sessionCookie);
+  res = await login('weekend', 'temporary-password-2026');
+  assert('restored account can sign in using its reset password', res.status === 200);
+  sessionCookie = ownerCookie;
+  res = await call('GET', '/api/account-actions');
+  assert('owner sees the three account actions with server-side attribution and no passwords', res.status === 200 && res.body.length === 3 && res.body.every(row => row.actor_username === 'owner' && !JSON.stringify(row).includes('password-2026')));
+  const mutation = await fetch(BASE + `/api/users/${weekendId}/access`, { method: 'POST', headers: { Cookie: ownerCookie, 'Content-Type': 'application/json', Origin: 'https://other.example' }, body: JSON.stringify({ action: 'disable', current_password: 'calving-owner-2026', reason: 'Cross site attempt' }) });
+  assert('a valid session cannot authorise a cross-origin account change', mutation.status === 403);
+  const badRoute = await fetch(BASE + '/api/not-a-route', { headers: { Cookie: ownerCookie } });
+  assert('unknown API routes return JSON and are not cached', badRoute.status === 404 && /json/.test(badRoute.headers.get('content-type')) && badRoute.headers.get('cache-control') === 'no-store');
 
   // ---------------------------------------------------------- field feedback
   heading('Field usability feedback');
@@ -1225,6 +1283,12 @@ async function run() {
     name: 'Unauthorised', username: 'unauthorised', password: 'password-2026', role: 'milker'
   });
   assert('a milker cannot create another account', res.status === 403);
+  res = await call('POST', `/api/users/${owner.id}/access`, { action: 'disable', current_password: 'calving-owner-2026', reason: 'Unauthorised attempt' });
+  assert('milkers cannot change account access even with an owner password', res.status === 403);
+  res = await call('GET', '/api/account-actions');
+  assert('milkers cannot read account action history', res.status === 403);
+  res = await call('GET', '/api/users');
+  assert('milkers cannot enumerate account usernames', res.status === 403);
 
   res = await call('POST', '/api/drugs', {
     drug_name: 'Milker must not add this', milk_withdrawal_value: 0,

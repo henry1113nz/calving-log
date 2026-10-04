@@ -8,4 +8,5 @@ backups
 output
 *.db
 *.db-*
+*.db.backup-*
 *.pdf

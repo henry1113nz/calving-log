@@ -17,19 +17,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function render() {
     if (!messages.length) {
-      log.innerHTML = '<div class="chat-welcome"><h3>Start a conversation / 开始对话</h3><p>Ask about your project or demo records. You can change AI and sharing options before sending.</p></div>';
+      log.innerHTML = '<div class="chat-welcome"><h3>Start a conversation</h3><p>Ask about the app or demo records. You can change AI and sharing options before sending.</p></div>';
       return;
     }
     log.innerHTML = messages.map(message => {
       const answer = message.answer;
       const sources = answer?.sources || [];
-      const mode = !answer ? 'Message / 提示' : answer.mode === 'external' ? `${answer.provider} · AI response` : 'Local lookup · 本地查询（不是 AI 对话）';
+      const mode = !answer ? 'Message' : answer.mode === 'external' ? `${answer.provider} · AI response` : 'Local lookup · not an AI conversation';
       return `<article class="chat-message ${message.role === 'user' ? 'chat-user' : 'chat-assistant'}">
-        <div class="chat-message-label">${message.role === 'user' ? 'You / 你' : escapeHtml(mode)}</div>
+        <div class="chat-message-label">${message.role === 'user' ? 'You' : escapeHtml(mode)}</div>
         <div class="chat-message-body">${escapeHtml(message.text)}</div>
-        ${answer ? `<p class="hint">${answer.data_shared ? 'Selected demo data was shared with AI / 本次分享了选定演示数据' : 'No database results sent to AI / 未向 AI 发送数据库结果'} · No records changed / 未修改记录</p>` : ''}
+        ${answer ? `<p class="hint">${answer.data_shared ? 'Selected demo results shared with AI' : 'No database results sent to AI'} · No records changed</p>` : ''}
         ${answer?.notice ? `<div class="notice warning">${escapeHtml(answer.notice)}</div>` : ''}
-        ${sources.length ? `<details class="chat-sources"><summary>Sources / 数据来源 (${sources.length})</summary>${sources.map(source => `<details><summary>${allowedSources.has(source.href) ? `<a href="${escapeHtml(source.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.label)}</a>` : escapeHtml(source.label)}${source.checked_at ? ` <span class="hint" title="${escapeHtml(source.checked_at)}">Checked ${escapeHtml(formatTimestamp(source.checked_at))}</span>` : ''}</summary><pre>${escapeHtml(JSON.stringify(source.facts || {}, null, 2))}</pre></details>`).join('')}</details>` : ''}
+        ${sources.length ? `<details class="chat-sources"><summary>Check sources (${sources.length})</summary>${sources.map(source => `<details><summary>${allowedSources.has(source.href) ? `<a href="${escapeHtml(source.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.label)}</a>` : escapeHtml(source.label)}${source.checked_at ? ` <span class="hint" title="${escapeHtml(source.checked_at)}">Checked ${escapeHtml(formatTimestamp(source.checked_at))}</span>` : ''}</summary><pre>${escapeHtml(JSON.stringify(source.facts || {}, null, 2))}</pre></details>`).join('')}</details>` : ''}
       </article>`;
     }).join('');
   }
@@ -37,12 +37,12 @@ document.addEventListener('DOMContentLoaded', () => {
   async function reset() {
     if (busy) return;
     busy = true;
-    setBusy(clear, true, 'Clearing / 正在清除…');
+    setBusy(clear, true, 'Clearing…');
     send.disabled = true; language.disabled = true; ai.disabled = true; share.disabled = true;
     try {
       if (conversationId) await requestJson('/api/assistant/chat/clear', jsonOptions('POST', { conversation_id: conversationId }));
       conversationId = null; messages = []; render();
-      showNotice('#chat-notice', 'New conversation. No farm records were changed. / 已开启新对话，未修改农场记录。', 'info');
+      showNotice('#chat-notice', 'New conversation. No farm records were changed.', 'info');
     } catch (error) {
       showNotice('#chat-notice', error.message, 'warning');
     } finally {
@@ -61,14 +61,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!question || busy) return;
     busy = true;
     messages.push({ role: 'user', text: question }); render();
-    setBusy(send, true, 'Thinking / 正在回复…');
+    setBusy(send, true, 'Thinking…');
     clear.disabled = true; ai.disabled = true; share.disabled = true; language.disabled = true;
-    progress.textContent = 'Reading context and checking records… / 正在读取上下文与查询记录…';
+    progress.textContent = 'Reading context and checking records…';
     showNotice('#chat-notice', '');
     const usedAI = ai.checked;
     try {
       const answer = await requestJson('/api/assistant/chat', jsonOptions('POST', {
-        question, language: language.value || 'auto', use_ai: usedAI,
+        question, language: language.value || 'en', use_ai: usedAI,
         share_data: usedAI && share.checked, conversation_id: conversationId
       }));
       conversationId = answer.conversation_id || null;
@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (input.value.trim() === question) input.value = '';
       render();
     } catch (error) {
-      messages.push({ role: 'assistant', text: `${error.message}\nNothing was changed. / 没有修改任何记录。` }); render();
+      messages.push({ role: 'assistant', text: `${error.message}\nNo records were changed.` }); render();
       showNotice('#chat-notice', error.message, 'error');
     } finally {
       busy = false; setBusy(send, false); clear.disabled = false;
@@ -104,8 +104,8 @@ document.addEventListener('DOMContentLoaded', () => {
     ai.disabled = !available || busy; updateConsent();
     document.getElementById('assistant-settings-link').hidden = !status.can_test_connection;
     document.getElementById('chat-ai-label').textContent = available
-      ? `${status.provider} AI / 使用 AI 对话`
-      : 'External AI unavailable. Simple local lookups still work. / 外部 AI 未配置，可使用简单本地查询。';
+      ? `Use ${status.provider} AI`
+      : 'AI unavailable · local lookups still work';
     document.getElementById('assistant-status').textContent = available
       ? `${status.provider} configured · ${status.connection_test?.state === 'connected' ? 'Last connection test passed' : 'Connection not tested'}. Each reply shows its actual mode.`
       : `Local lookup mode. ${status.configuration_message}`;

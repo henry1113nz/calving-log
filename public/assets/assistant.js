@@ -47,8 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }).join('')}</ul>` : emptyState('No medicine holds are listed today', 'Other animal-health and farm holds must still be checked.')}`;
   }
 
-  // 解释一条记录时把证据一起摆出来:哪条标签规则、哪个版本、当时每天挤几次奶。
-  // 只给一句"到某日解除",人就没有办法判断这个日期还成不成立。
+  // Show the saved label revision, rule and frequency alongside a stored hold date.
   function evidenceLine(event) {
     const parts = [];
     if (event.drug_rule_name) parts.push(`Rule: ${event.drug_rule_name}`);

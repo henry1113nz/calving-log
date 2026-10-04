@@ -4,8 +4,8 @@ const SESSION_COOKIE = 'calvinglog_session';
 const SESSION_HOURS = 12;
 
 function passwordFields(password, salt = crypto.randomBytes(16).toString('hex')) {
-  if (typeof password !== 'string' || password.length < 8) {
-    throw new Error('Password must contain at least 8 characters');
+  if (typeof password !== 'string' || password.length < 8 || password.length > 256) {
+    throw new Error('Password must contain 8 to 256 characters');
   }
   return {
     password_salt: salt,
@@ -21,7 +21,8 @@ function safeEqualHex(left, right) {
 }
 
 function verifyPassword(password, user) {
-  if (!user?.password_salt || !user?.password_hash || typeof password !== 'string') return false;
+  if (!user?.password_salt || !user?.password_hash || typeof password !== 'string'
+    || password.length < 8 || password.length > 256) return false;
   const candidate = passwordFields(password, user.password_salt).password_hash;
   return safeEqualHex(candidate, user.password_hash);
 }
@@ -64,11 +65,17 @@ function ensureUserCredentials(db) {
 }
 
 function parseCookies(header = '') {
-  return Object.fromEntries(header.split(';').map(part => part.trim()).filter(Boolean).map(part => {
+  const cookies = {};
+  for (const part of header.split(';').map(value => value.trim()).filter(Boolean)) {
     const separator = part.indexOf('=');
-    if (separator < 0) return [decodeURIComponent(part), ''];
-    return [decodeURIComponent(part.slice(0, separator)), decodeURIComponent(part.slice(separator + 1))];
-  }));
+    if (separator < 1) continue;
+    try {
+      const name = decodeURIComponent(part.slice(0, separator));
+      const value = decodeURIComponent(part.slice(separator + 1));
+      if (!Object.hasOwn(cookies, name)) Object.defineProperty(cookies, name, { value, enumerable: true });
+    } catch { /* Ignore malformed, unrelated cookies rather than failing the whole request. */ }
+  }
+  return cookies;
 }
 
 function tokenHash(token) {
@@ -93,7 +100,7 @@ function sessionUser(db, req) {
     SELECT users.id, users.name, users.username, users.role, auth_sessions.expires_at
     FROM auth_sessions
     JOIN users ON auth_sessions.user_id = users.id
-    WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?
+    WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ? AND users.is_active = 1
   `).get(tokenHash(token), new Date().toISOString()) || null;
 }
 

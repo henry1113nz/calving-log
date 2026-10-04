@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>Help &amp; data · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="help">
+  <div class="app-shell"><div class="app-main">
+    <header class="page-header"><div><p class="eyebrow">A quick guide</p><h1 class="page-title">Help &amp; data</h1><p class="page-subtitle">Know where to go, what a hold means, and how your information is handled.</p></div><div class="page-actions"><a class="btn secondary" href="/feedback.html">Report a problem</a></div></header>
+    <main class="page-content stack">
+      <section class="card">
+        <h2 class="card-title">Start with the daily list</h2>
+        <p>Open <a href="/">Dashboard</a> before milking. It lists stored medicine holds and unresolved records. It is not a complete check of every reason milk might need to be withheld.</p>
+        <div class="quick-grid">
+          <a class="quick-link" href="/events.html"><strong>Record treatment or calving</strong><span>Choose the cow, date and product. Use the last treatment date and the matching label rule.</span></a>
+          <a class="quick-link" href="/reviews.html"><strong>Resolve missing information</strong><span>Find the source event, correct the missing evidence, then review the result.</span></a>
+          <a class="quick-link" href="/herd.html"><strong>Find a cow</strong><span>Search by tag or breed. A culled cow is kept for history, not deleted.</span></a>
+          <a class="quick-link" href="/schedule.html"><strong>Change the milking plan</strong><span>Owners can add a farm-wide OAD or TAD change with an effective date.</span></a>
+        </div>
+      </section>
+      <section class="card" id="holds">
+        <h2 class="card-title">Understand the dates</h2>
+        <dl class="medicine-meta">
+          <dt>Hold through</dt><dd>The displayed day is included in the hold. Do not treat it as a release time.</dd>
+          <dt>Eligible from</dt><dd>The next day after the stored hold. This does not approve milk for the vat; check all other farm requirements.</dd>
+          <dt>Predicted</dt><dd>Based on an expected calving date. Planning only: record the actual calving before resolving the review.</dd>
+          <dt>Unknown / needs review</dt><dd>A required fact or authoritative rule is missing. Keep the milk out; do not guess a date.</dd>
+          <dt>OAD / TAD</dt><dd>Once-a-day / twice-a-day milking. The dated plan is farm-wide; an explicit event override applies only to that event.</dd>
+          <dt>Dry-off</dt><dd>Stopping milking before the next calving. The Dry-off page records SCC evidence and a person's decision, not an AI prescription.</dd>
+        </dl>
+        <p class="notice warning">The current calculator works at calendar-day level using scheduled milking frequency. It does not record actual milking sessions, treatment times, missed milkings or every concurrent-treatment rule. Use this prototype only with demonstration records.</p>
+      </section>
+      <section class="card">
+        <h2 class="card-title">Who can do what?</h2>
+        <ul class="test-task-list">
+          <li><strong>Milker:</strong> read operational pages, add events, cows and SCC records, and give feedback. Cannot alter medicine evidence, the farm schedule or past events.</li>
+          <li><strong>Vet:</strong> also edit cows and medicine evidence, correct events, resolve reviews with sufficient evidence, and record dry-off decisions.</li>
+          <li><strong>Owner:</strong> also manage the farm schedule, create or disable sign-ins, reset another account's password, review all feedback, and test the optional AI connection.</li>
+        </ul>
+        <p>Use <a href="/account.html">Account</a> to change your password. If you forget it, ask an owner to reset it. There is no public registration or email-recovery service. Never share an owner sign-in.</p>
+      </section>
+      <section class="card" id="privacy">
+        <h2 class="card-title">Data and privacy — trial notice</h2>
+        <p>This is a single-farm demonstration prototype, not a multi-farm service. Do not add personal details, real farm identifiers or real clinical information. Existing records are retained until the operator arranges removal; there is no automatic retention policy.</p>
+        <ul class="test-task-list">
+          <li><strong>Stored records:</strong> cows, treatment events, label evidence, schedules, SCC, decisions, corrections, reviews, accounts and feedback are held in the application's SQLite database on its hosting volume.</li>
+          <li><strong>Sign-in:</strong> a session cookie identifies your account for up to 12 hours. Passwords are hashed, not returned by the account API. Actions are attributed to the signed-in account.</li>
+          <li><strong>Feedback:</strong> task, completion, ease rating and comments are linked to your sign-in. Only owners can browse submitted responses. Do not enter personal information in comments.</li>
+          <li><strong>AI off:</strong> simple local lookups stay within this application.</li>
+          <li><strong>AI on:</strong> pressing Send shares your messages and recent conversation with the named external provider and may use paid API credit. The separate demo-record option also shares a herd summary and selected query or label results. The whole database, passwords, staff identities and feedback are not supplied by the query tools. Typed messages and permitted record text can still reveal sensitive information.</li>
+          <li><strong>Chat memory:</strong> kept in server memory, not the farm database, for up to 30 minutes of inactivity. New chat, changing sharing scope, refresh or a restart starts a fresh conversation. Provider retention is separate and must be reviewed before real-data use.</li>
+        </ul>
+        <p>Before a real-data pilot, the operator must identify a privacy contact, publish a reviewed privacy notice and retention plan, and agree hosting and AI processing arrangements. This trial notice is not a completed commercial privacy policy. Ask the person organising your trial for access, correction or removal requests.</p>
+      </section>
+      <section class="card soft"><h2 class="card-title">If something goes wrong</h2><p>Keep the farm's normal record and withholding process in use. CalvingLog has no offline synchronisation. If the site is unavailable, do not rely on an old screenshot or ask AI to approve release. Report the page and action through <a href="/feedback.html">Feedback</a>, without names, passwords or clinical identifiers.</p><p>AI can explain stored evidence and may say it does not know. It cannot change records, prescribe, calculate a new clear date or authorise milk release. Check source links beside a reply.</p></section>
+    </main>
+  </div></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

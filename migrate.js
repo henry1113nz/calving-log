@@ -700,6 +700,26 @@ const MIGRATIONS = [
           ON field_feedback(created_at);
       `);
     }
+  },
+  {
+    version: 10,
+    name: 'account access control and owner action history',
+    up: db => {
+      // Retain user IDs so clinical/feedback attribution survives an access change.
+      db.exec(`
+        ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1));
+        CREATE TABLE account_actions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          action TEXT NOT NULL CHECK (action IN ('disable', 'enable', 'reset_password')),
+          reason TEXT NOT NULL CHECK (length(reason) BETWEEN 5 AND 500),
+          performed_by INTEGER NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX idx_account_actions_user ON account_actions(user_id);
+        CREATE INDEX idx_account_actions_actor ON account_actions(performed_by);
+      `);
+    }
   }
 ];
 

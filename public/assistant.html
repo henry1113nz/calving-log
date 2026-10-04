@@ -10,40 +10,40 @@
 <body data-page="assistant">
   <div class="app-shell"><div class="app-main">
     <header class="page-header">
-      <div><p class="eyebrow">Your project &amp; demo-data assistant</p><h1 class="page-title">Ask CalvingLog</h1>
-        <p class="page-subtitle">Ask about your project or demo records, in your own language.</p></div>
+      <div><p class="eyebrow">Read-only help &amp; demo records</p><h1 class="page-title">Ask CalvingLog</h1>
+        <p class="page-subtitle">Find records, understand a stored result, or ask how to use the app.</p></div>
       <div class="page-actions"><a class="btn secondary" href="/record-helper.html">Calving record helper</a></div>
     </header>
     <main class="page-content stack chat-page">
       <p class="notice warning"><strong>Read-only assistant.</strong> It cannot change records, prescribe treatment or approve milk for the vat. Check labels and your farm procedure.</p>
       <section class="card">
-        <div class="card-head"><div><h2 class="card-title">Conversation / 对话</h2><p class="card-subtitle" id="assistant-status" role="status">Checking assistant availability…</p></div>
-          <button class="btn secondary small" type="button" id="chat-clear">New chat / 新对话</button></div>
+        <div class="card-head"><div><h2 class="card-title">Conversation</h2><p class="card-subtitle" id="assistant-status" role="status">Checking assistant availability…</p></div>
+          <button class="btn secondary small" type="button" id="chat-clear">New chat</button></div>
         <p id="assistant-settings-link" hidden><a href="/ai-settings.html">AI settings and connection test (Owner)</a></p>
         <div id="chat-messages" class="chat-messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
-          <div class="chat-welcome"><h3>What would you like to know? / 想了解什么？</h3><p>Ask a question, then follow up naturally. Try an example below.</p></div>
+          <div class="chat-welcome"><h3>What would you like to know?</h3><p>Ask a question, then follow up naturally. Try an example below.</p></div>
         </div>
         <div class="list-meta chat-examples">
-          <button class="text-button" type="button" data-chat-example="帮我看看现在有多少头牛，区分泌乳、干奶和淘汰，用中文回答">牛群数量</button>
+          <button class="text-button" type="button" data-chat-example="How many cows are recorded? Separate active, lactating, dry and culled cows.">Herd numbers</button>
           <button class="text-button" type="button" data-chat-example="Which cows are on hold today, and what information is still missing?">Today's holds</button>
-          <button class="text-button" type="button" data-chat-example="解释一下我网站的技术架构，老师问我应该怎么回答？">Explain my project</button>
+          <button class="text-button" type="button" data-chat-example="How do the pages fit together, and what can my role do?">Using the app</button>
           <button class="text-button" type="button" data-chat-example="Compare the stored labels for Cepravin Dry Cow and Bovaclox DC Xtra. Do not recommend treatment.">Compare label evidence</button>
         </div>
         <form id="chat-form">
-          <div class="field"><label for="chat-question">Your message / 你的问题</label><textarea id="chat-question" maxlength="2000" required placeholder="Ask naturally… 比如：其中哪些牛在干奶期？"></textarea></div>
+          <div class="field"><label for="chat-question">Your question</label><textarea id="chat-question" maxlength="2000" required placeholder="For example: Which cows are dry, and why is cow 308 still on hold?"></textarea></div>
           <div class="chat-controls">
-            <div class="field"><label for="chat-language">Reply language / 回复语言</label><select id="chat-language"><option value="auto" selected>Auto · Follow my language</option><option value="zh">中文</option><option value="en">English</option></select></div>
+            <div class="field"><label for="chat-language">Reply language</label><select id="chat-language"><option value="en" selected>English</option><option value="auto">Follow my language</option></select></div>
             <div class="chat-consents">
               <label class="activation-row"><input id="chat-use-ai" type="checkbox" disabled><span id="chat-ai-label">Checking AI…</span></label>
-              <label class="activation-row"><input id="chat-share-data" type="checkbox" disabled><span>Share demo results / 分享演示查询结果</span></label>
+              <label class="activation-row"><input id="chat-share-data" type="checkbox" disabled><span>Use demo records for this chat</span></label>
             </div>
           </div>
-          <p class="hint chat-privacy">When you press Send with AI on, messages and recent chat go to the provider; sharing also sends a demo herd overview and selected query results. This may cost API credit. Turn either option off above. 演示数据限定，请勿输入个人信息、密码或真实临床信息。</p>
-          <div class="form-actions"><button class="btn" id="chat-submit" type="submit">Send / 发送</button><span class="hint" id="chat-progress" role="status"></span></div>
+          <p class="hint chat-privacy">Sending with AI on shares your messages and recent chat with the provider. Using demo records also sends a herd summary and selected query results. API credit may be used. Turn either option off above. Do not enter personal details, passwords or real clinical information. <a href="/help.html#privacy">Data and privacy</a>.</p>
+          <div class="form-actions"><button class="btn" id="chat-submit" type="submit">Send</button><span class="hint" id="chat-progress" role="status"></span><span class="hint">Ctrl or Cmd + Enter to send</span></div>
         </form>
         <div id="chat-notice" role="status" style="margin-top:14px" hidden></div>
       </section>
-      <details class="card soft"><summary>How this works · 数据、权限和限制</summary>
+      <details class="card soft"><summary>How answers, data and permissions work</summary>
         <p>The language model generates normal replies. When you consent to demo-data sharing, the server supplies a fresh herd summary and validates any read-only lookup the model requests. It cannot run arbitrary SQL or write records. Source links and expandable server facts appear below each answer, separate from the AI's wording.</p>
         <p>Recent conversation is held in server memory for up to 30 minutes of inactivity, not saved into your farm database. New chat clears that conversation; refresh starts a new one. Changing sharing consent resets context so earlier record facts are not sent after you withdraw consent. No web search is connected. General answers and translations may be wrong; verify important claims.</p>
         <p>Without external AI, simple local lookups still work, but free-form conversation and follow-ups do not. To confirm a calving draft, use the <a href="/record-helper.html">record helper</a>; to record treatment, use <a href="/events.html">Treatments</a>.</p>

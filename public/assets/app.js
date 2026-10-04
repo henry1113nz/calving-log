@@ -9,7 +9,8 @@
     { id: 'schedule', href: '/schedule.html', label: 'Milking plan', icon: '◷' },
     { id: 'assistant', href: '/assistant.html', label: 'Ask', icon: '?' },
     { id: 'feedback', href: '/feedback.html', label: 'Feedback', icon: '✎' },
-    { id: 'account', href: '/account.html', label: 'Account', icon: '○' }
+    { id: 'account', href: '/account.html', label: 'Account', icon: '○' },
+    { id: 'help', href: '/help.html', label: 'Help & data', icon: 'i' }
   ];
   let currentUser = null;
 
@@ -102,6 +103,7 @@
 
   async function requestJson(url, options = {}) {
     const response = await fetch(url, options);
+    if (response.ok && (response.status === 204 || response.status === 205)) return null;
     const contentType = response.headers.get('content-type') || '';
     const payload = contentType.includes('application/json') ? await response.json() : null;
     if (!response.ok) {

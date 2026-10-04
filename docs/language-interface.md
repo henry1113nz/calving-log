@@ -3,7 +3,8 @@
 CalvingLog's main Ask page is now a normal conversational interface, not a fixed intent
 classifier. The model generates multilingual replies and can request validated read-only
 queries to understand demonstration records. English, Chinese and other language replies
-are supported by the model; the UI offers Auto, Chinese and English preferences.
+are supported by the model. The interface and default reply language are English; an optional
+“Follow my language” preference preserves multilingual support without bilingual interface text.
 
 ## Two separate workflows
 
@@ -53,7 +54,7 @@ model-generated prose. Dates use the existing application's UTC-day convention.
 ## Consent and data handling
 
 AI and database sharing remain separate controls. On the demo chat page both default to on
-when a provider is configured, and reply language defaults to Auto. The visible notice explains
+when a provider is configured, and reply language defaults to English. The visible notice explains
 what pressing Send shares and that API credit may be used. Either control can be turned off.
 Opening the page only reads configuration: no provider request or data transfer occurs until Send.
 The legacy calving record helper and paid connection probe still require explicit selection.

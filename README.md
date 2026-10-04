@@ -107,7 +107,9 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 
 In development — COMPX576 project, University of Waikato.
 
-The application is at schema version 9. Eleven current products in the active reference
+The application is at schema version 10. See the [single-farm commercial readiness review](docs/commercial-readiness-2026-10-04.md) before introducing real farm data; this is still a supervised prototype, not a validated milk-release service.
+
+Eleven current products in the active reference
 set have been checked against their current MPI ACVM Approved Labels, including the label
 wording, source, revision and rule variants used by the calculator. `Bovaclox DC Xtra`
 (A009020) is deliberately inactive because the current register does not provide a

@@ -226,7 +226,7 @@ test('provider fallback is clearly displayed as a local lookup, not a successful
   } : readyStatus);
   ui.element('chat-use-ai').checked = true; ui.element('chat-question').value = 'Count';
   await ui.element('chat-form').listeners.submit({ preventDefault() {} });
-  assert.match(ui.element('chat-messages').innerHTML, /不是 AI 对话/);
+  assert.match(ui.element('chat-messages').innerHTML, /not an AI conversation/);
   assert.match(ui.element('chat-messages').innerHTML, /External API unavailable/);
   assert.ok(!ui.element('chat-messages').innerHTML.includes('AI response'));
 });

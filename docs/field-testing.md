@@ -25,7 +25,8 @@ The deployed prototype is the only thing a participant needs; nothing is install
    person's name. A relief milker can record events and submit feedback, but cannot verify a
    medicine, change the milking schedule, correct history or make a final dry-off decision.
 3. Hand the temporary password over in person and ask the participant to change it on the same
-   page. Remove or rename the sign-in when the trial round is finished.
+   page. As Owner, use **Account → Disable, restore or reset a sign-in** when the trial round
+   is finished; confirm your owner password and record the reason. Historical attribution is retained.
 4. Take a backup of the deployed database before the first session, using the procedure in
    [deployment.md](deployment.md), so a round of test entries can be rolled back.
 5. Tell the participant what is recorded: the page, the task, whether it was completed, an ease

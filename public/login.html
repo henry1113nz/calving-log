@@ -13,11 +13,12 @@
     <h1>Sign in</h1>
     <p>Your session determines who is recorded against treatments, corrections and decisions.</p>
     <form id="login-form" class="stack">
-      <div class="field"><label for="username">Username</label><input id="username" autocomplete="username" required></div>
-      <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label for="username">Username</label><input id="username" autocomplete="username" maxlength="40" autocapitalize="none" spellcheck="false" required></div>
+      <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" maxlength="256" required></div>
       <button class="btn" type="submit">Sign in</button>
     </form>
     <div id="login-result" style="margin-top:14px" hidden></div>
+    <p class="hint">Need access or forgot your password? Ask your farm owner. There is no public registration.</p>
   </main>
   <script src="/assets/login.js"></script>
 </body>

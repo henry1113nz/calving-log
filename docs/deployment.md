@@ -76,8 +76,8 @@ cross-instance quota. Review provider billing separately and keep the SQLite ser
 instance. Agree this data transfer
 with the supervisor before asking farm-trial participants to opt in.
 
-See [deepseek-setup.md](deepseek-setup.md) for the beginner-friendly Chinese checklist and
-acceptance questions. Mock tests do not establish live upstream availability.
+See [language-interface.md](language-interface.md) for chat behaviour and acceptance checks.
+Mock tests do not establish live upstream availability. The interface and default reply language are English.
 
 ## Container deployment
 
@@ -131,7 +131,7 @@ hosting dashboard. It contains no usable credentials and must remain that way.
 After deployment, sign in as each role and confirm that the dashboard, review queue and Field
 feedback page load, ask the supported vat and single-cow questions, change one test account password,
 and confirm that a milker receives a permission message when attempting an
-owner-only action. `GET /api/health` must return `status: ok` and `schema_version: 9`.
+owner-only action. `GET /api/health` must return `status: ok` and `schema_version: 10`.
 
 For the first trial, use demonstration animals only and follow
 [field-testing.md](field-testing.md). The prototype banner is deliberately visible on every
@@ -141,6 +141,11 @@ signed-in page: this application must not be the sole authority for real milk re
 
 The backup command uses SQLite's online backup API and runs `integrity_check` on the result.
 It does not overwrite an existing file.
+
+Before upgrading an existing database to a newer schema, startup now creates and verifies a
+separate `*.db.backup-before-v10-*` snapshot beside the database. An unsuccessful backup
+blocks the upgrade. This protects the migration, not a lost hosting volume: copy backups off
+the volume and run the restore drill. It does not replace daily backups or a retention policy.
 
 ```bash
 npm run backup-db
@@ -168,7 +173,17 @@ treatments, review items and vat-exclusion list.
 
 - Session state is stored in SQLite and expires after 12 hours.
 - Failed sign-ins are limited in memory to 10 attempts per username and IP every 15 minutes.
-  A distributed deployment would need a shared limiter.
+  An additional 100 failed attempts per IP blocks username cycling. Old keys are pruned and
+  the key store is bounded. A distributed deployment would need a shared limiter.
+- Browser API writes reject cross-origin/cross-site requests. API responses are not cached;
+  pages carry a restrictive script/frame policy and HTTPS HSTS. These are defence in depth,
+  not an independent security assessment. Review the one-hop trusted proxy before changing hosts.
+- Owners can disable/restore other accounts and reset passwords after confirming their own
+  password and recording a reason. Disabling/resetting closes the target's sessions and does
+  not erase history. There is no email recovery, MFA or enforced temporary-password expiry.
+- GitHub Actions runs tests, database verification and a dependency audit on pushes/PRs.
+  Direct Railway GitHub deployment is NOT automatically held until these checks pass;
+  review checks and deployment status before accepting a release.
 - The assistant supports six intents: the daily vat list, one cow's recorded hold, a calving
   draft, medicine references, milking plan, and workflow help on the legacy record helper.
   The main Ask page supports normal multilingual conversation and read-only operational queries.

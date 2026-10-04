@@ -1,7 +1,8 @@
 const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
-const { migrate } = require('./migrate');
+const { migrate, LATEST_VERSION } = require('./migrate');
+const { backupBeforeMigration } = require('./migrationBackup');
 const { seed } = require('./seed');
 const { syncAcvmReferenceData } = require('./acvmReferenceData');
 const { syncAdditionalAcvmReferenceData } = require('./acvmAdditionalReferenceData');
@@ -18,6 +19,10 @@ const db = new Database(DB_FILE);
 // SQLite 默认不强制外键,必须每个连接单独打开。
 db.pragma('foreign_keys = ON');
 
+if (databaseAlreadyExisted) {
+  const backup = backupBeforeMigration(db, absoluteDbFile, LATEST_VERSION);
+  if (backup) console.log(`Verified pre-migration backup: ${backup}`);
+}
 migrate(db);
 seed(db);
 ensureUserCredentials(db);
