@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
   } = window.CalvingLog;
   const state = { cows: [], scc: [], decisions: [], advice: null, user: null };
   const cowSelect = document.getElementById('review_cow');
+  let adviceRequest = 0;
+  let adviceContext = '';
   document.getElementById('review_season').value = currentSeason();
   document.getElementById('scc_test_date').value = today();
 
@@ -85,18 +87,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadAdvice() {
     const cowId = selectedCowId();
+    const request = ++adviceRequest;
+    const season = document.getElementById('review_season').value.trim();
+    const context = `${cowId}:${season}`;
+    if (context !== adviceContext) {
+      adviceContext = context;
+      state.advice = null;
+      document.getElementById('justification').value = '';
+      document.getElementById('decision').value = '';
+      renderScc();
+    }
     if (!cowId) {
       state.advice = null;
       renderRecommendation();
       renderScc();
       return;
     }
-    const season = document.getElementById('review_season').value.trim();
+    document.getElementById('recommendation').innerHTML = emptyState('Checking this cow’s evidence…');
     try {
-      state.advice = await requestJson(`/api/cows/${cowId}/dry-off-recommendation?season=${encodeURIComponent(season)}`);
+      const advice = await requestJson(`/api/cows/${cowId}/dry-off-recommendation?season=${encodeURIComponent(season)}`);
+      if (request !== adviceRequest) return;
+      state.advice = advice;
       renderRecommendation();
       renderScc();
     } catch (error) {
+      if (request !== adviceRequest) return;
+      state.advice = null;
       document.getElementById('recommendation').innerHTML = emptyState('Unable to calculate recommendation', error.message);
     }
   }
@@ -143,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scc-form').addEventListener('submit', async event => {
     event.preventDefault();
     const submit = event.currentTarget.querySelector('button[type="submit"]');
+    if (submit.disabled) return;
     if (!selectedCowId()) {
       showNotice('#scc-result', 'Select a cow before recording an SCC result.', 'error');
       return;
@@ -170,6 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('decision-form').addEventListener('submit', async event => {
     event.preventDefault();
     const submit = event.currentTarget.querySelector('button[type="submit"]');
+    if (submit.disabled) return;
     if (!selectedCowId()) {
       showNotice('#decision-result', 'Select a cow before recording a decision.', 'error');
       return;

@@ -420,6 +420,13 @@ async function run() {
       && JSON.parse(res.body[0].corrected_snapshot).event_date === '2026-08-05',
     JSON.stringify(res.body));
 
+  res = await call('PUT', `/api/events/${treatmentId}`, {
+    notes: null, correction_reason: 'Remove an incorrect handover note'
+  });
+  assert('explicitly clearing notes actually clears them without removing medicine evidence',
+    res.status === 200 && res.body.notes === null && res.body.drug_id === lactatingDrug.id
+      && res.body.withdrawal_end_date === correctedEnd);
+
   res = await call('GET', '/api/reviews?status=open');
   assert('an automatically unprovable event stays visible in the open review queue',
     res.status === 200 && res.body.some(review => review.health_event_id === awaitingEventId),

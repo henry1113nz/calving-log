@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  const { badge, emptyState, escapeHtml, formatDate, humanize, requestJson } = window.CalvingLog;
+  const { badge, emptyState, escapeHtml, formatDate, formatTimestamp, humanize, requestJson } = window.CalvingLog;
 
   function openMarkup(rows, canCorrect) {
     if (!rows.length) return emptyState('No open reviews', 'Every current medicine event has an authoritative result.');
@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!rows.length) return emptyState('No resolved reviews yet', 'Closed reviews will remain here for audit.');
     return `<div class="table-wrap"><table><thead><tr><th>Cow / event</th><th>Reason</th><th>Resolution</th><th>Resolved by</th></tr></thead><tbody>${rows.map(row => `
       <tr><td><strong>Cow ${escapeHtml(row.tag_number)}</strong><br><span class="list-detail">${escapeHtml(formatDate(row.event_date, { short: true }))} · ${escapeHtml(row.drug_name || '')}</span></td>
-      <td>${escapeHtml(row.reason)}</td><td>${escapeHtml(row.resolution || '')}</td><td>${escapeHtml(row.resolved_by_name || 'Not recorded')}<br><span class="list-detail">${escapeHtml(row.resolved_at || '')}</span></td></tr>`).join('')}</tbody></table></div>`;
+      <td>${escapeHtml(row.reason)}</td><td>${escapeHtml(row.resolution || '')}</td><td>${escapeHtml(row.resolved_by_name || 'Not recorded')}<br><span class="list-detail">${escapeHtml(formatTimestamp(row.resolved_at))}</span></td></tr>`).join('')}</tbody></table></div>`;
   }
 
   try {

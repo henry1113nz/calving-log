@@ -39,6 +39,18 @@
     }).format(parsed);
   }
 
+  function formatTimestamp(value) {
+    if (!value) return 'Not recorded';
+    // SQLite UTC timestamps and ISO timestamps both occur in audit records.
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+      ? `${value.replace(' ', 'T')}Z` : value;
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return new Intl.DateTimeFormat('en-NZ', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+    }).format(parsed);
+  }
+
   function today() {
     return new Date().toISOString().slice(0, 10);
   }
@@ -72,12 +84,19 @@
   function setBusy(button, busy, busyText = 'Saving…') {
     if (!button) return;
     if (busy) {
+      if (button.dataset.busy === 'true') return;
+      button.dataset.busy = 'true';
       button.dataset.originalText = button.textContent;
+      button.dataset.originalDisabled = String(button.disabled);
       button.textContent = busyText;
       button.disabled = true;
     } else {
-      button.textContent = button.dataset.originalText || button.textContent;
-      button.disabled = false;
+      if (button.dataset.busy !== 'true') return;
+      button.textContent = button.dataset.originalText;
+      button.disabled = button.dataset.originalDisabled === 'true';
+      delete button.dataset.busy;
+      delete button.dataset.originalText;
+      delete button.dataset.originalDisabled;
     }
   }
 
@@ -92,6 +111,7 @@
       }
       throw new Error(payload?.error || payload?.message || `Request failed (${response.status})`);
     }
+    if (payload === null) throw new Error('The server returned an unexpected response. Please refresh and try again.');
     return payload;
   }
 
@@ -122,7 +142,7 @@
 
   function navMarkup(active, mobile = false) {
     return pages.map(page => `
-      <a class="nav-link${active === page.id ? ' active' : ''}" href="${page.href}">
+      <a class="nav-link${active === page.id ? ' active' : ''}" href="${page.href}"${active === page.id ? ' aria-current="page"' : ''}>
         <span class="nav-icon" aria-hidden="true">${page.icon}</span>
         <span>${page.label}</span>
       </a>
@@ -151,6 +171,7 @@
       <div class="sidebar-foot">
         <span class="system-light"></span>${escapeHtml(currentUser.name)} · ${escapeHtml(humanize(currentUser.role))}<br>
         <button class="text-button" id="logout-button" type="button">Sign out</button>
+        <p id="logout-notice" role="status" hidden></p>
       </div>
     `;
     shell.prepend(sidebar);
@@ -167,6 +188,14 @@
     mobileTopbar.innerHTML = `<span class="mobile-brand"><span>CL</span> Calving Log</span><span class="mobile-status">${escapeHtml(currentUser.name)}${schemaVersion ? ` · v${escapeHtml(schemaVersion)}` : ''}</span>`;
     const main = shell.querySelector('.app-main');
     main?.prepend(mobileTopbar);
+    const content = main?.querySelector('main');
+    if (content) {
+      content.id = 'main-content';
+      content.setAttribute('tabindex', '-1');
+      const skip = document.createElement('a');
+      skip.className = 'skip-link'; skip.href = '#main-content'; skip.textContent = 'Skip to content';
+      document.body.prepend(skip);
+    }
 
     const prototypeBanner = document.createElement('div');
     prototypeBanner.className = 'prototype-banner';
@@ -193,8 +222,16 @@
     });
 
     document.getElementById('logout-button')?.addEventListener('click', async () => {
-      await requestJson('/api/auth/logout', { method: 'POST' });
-      window.location.assign('/login.html');
+      const button = document.getElementById('logout-button');
+      if (button.disabled) return;
+      setBusy(button, true, 'Signing out…');
+      try {
+        await requestJson('/api/auth/logout', { method: 'POST' });
+        window.location.assign('/login.html');
+      } catch (error) {
+        const notice = document.getElementById('logout-notice');
+        notice.hidden = false; notice.textContent = `Could not sign out: ${error.message}`;
+      } finally { setBusy(button, false); }
     });
   }
 
@@ -204,6 +241,7 @@
     emptyState,
     escapeHtml,
     formatDate,
+    formatTimestamp,
     getCurrentUser: () => currentUser,
     humanize,
     jsonOptions,

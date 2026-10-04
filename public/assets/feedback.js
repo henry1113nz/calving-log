@@ -70,6 +70,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('feedback-form').addEventListener('submit', async event => {
     event.preventDefault();
     const button = document.getElementById('submit-feedback');
+    if (button.disabled) return;
     // event.currentTarget 在 await 之后就变成 null,保存成功却会抛错,参与者看到的是
     // 一条红色的 JavaScript 报错而不是"已保存"——然后他们会重复提交。
     const form = event.currentTarget;

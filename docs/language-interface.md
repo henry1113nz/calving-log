@@ -52,7 +52,11 @@ model-generated prose. Dates use the existing application's UTC-day convention.
 
 ## Consent and data handling
 
-AI and database sharing are separate opt-ins, off initially:
+AI and database sharing remain separate controls. On the demo chat page both default to on
+when a provider is configured, and reply language defaults to Auto. The visible notice explains
+what pressing Send shares and that API credit may be used. Either control can be turned off.
+Opening the page only reads configuration: no provider request or data transfer occurs until Send.
+The legacy calving record helper and paid connection probe still require explicit selection.
 
 1. AI enabled, data sharing off: send the current question, recent conversational messages and
    curated application knowledge. No database tool calls or herd overview are provided.
@@ -114,7 +118,7 @@ There is no web-search tool; current external facts cannot be checked by the ass
   injection attempts, uncertainty, rate budgets and conversation isolation/expiry.
 - `test-chat-api.js`: real authenticated HTTP/temporary-SQLite workflow with a mocked provider:
   follow-ups, consent withdrawal, separate login sessions, Milker reads, safe fallback and no writes.
-- `test-assistant-ui.js`: DOM-stub tests for opt-in, language, context IDs, clearing, escaping,
+- `test-assistant-ui.js`: DOM-stub tests for defaults/opt-out, language, context IDs, clearing, escaping,
   safe source links, fallback labels and duplicate submissions. Not visual browser QA.
 - Existing API/calculator/reference/structural tests still run through `npm run release-check`.
 

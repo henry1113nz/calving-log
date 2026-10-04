@@ -1078,7 +1078,7 @@ app.put('/api/events/:id', requireRole('owner', 'vet'), (req, res) => {
     calving_date: req.body.calving_date ?? existing.calving_date,
     drug_id: req.body.drug_id ?? existing.drug_id,
     drug_rule_id: supplied('drug_rule_id') ? req.body.drug_rule_id : existing.drug_rule_id,
-    notes: req.body.notes ?? existing.notes,
+    notes: supplied('notes') ? req.body.notes : existing.notes,
     created_by: existing.created_by,
     diagnosis: req.body.diagnosis ?? existing.diagnosis,
     calving_date_source: req.body.calving_date_source ?? existing.calving_date_source,

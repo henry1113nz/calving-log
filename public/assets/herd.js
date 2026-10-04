@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   } = window.CalvingLog;
   const state = { cows: [], user: null };
   const form = document.getElementById('cow-form');
+  let saving = false;
 
   function updateStats() {
     document.getElementById('herd-total').textContent = state.cows.length;
@@ -61,6 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function startEdit(id) {
+    if (saving) return;
     const cow = state.cows.find(item => item.id === id);
     if (!cow) return;
     document.getElementById('cow-edit-id').value = cow.id;
@@ -86,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    if (saving) return;
+    saving = true;
     const id = document.getElementById('cow-edit-id').value;
     const payload = {
       tag_number: document.getElementById('tag_number').value.trim(),
@@ -101,16 +105,24 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       await requestJson(id ? `/api/cows/${id}` : '/api/cows', jsonOptions(id ? 'PUT' : 'POST', payload));
       showNotice('#cow-result', id ? 'Cow record updated.' : 'Cow added to the herd.', 'success');
+      setBusy(submit, false);
       resetForm();
       await loadCows();
     } catch (error) {
       showNotice('#cow-result', error.message, 'error');
     } finally {
+      saving = false;
       setBusy(submit, false);
     }
   });
 
-  document.getElementById('cow-cancel').addEventListener('click', resetForm);
+  document.getElementById('cow-cancel').addEventListener('click', () => { if (!saving) resetForm(); });
+  document.getElementById('cow-add').addEventListener('click', () => {
+    if (saving) return;
+    resetForm(); showNotice('#cow-result', '');
+    document.getElementById('cow-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('tag_number').focus({ preventScroll: true });
+  });
   document.getElementById('cow-search').addEventListener('input', renderCows);
   document.getElementById('cow-status-filter').addEventListener('change', renderCows);
   loadCows();

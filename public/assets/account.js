@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     event.preventDefault();
     const form = event.currentTarget;
     const button = document.getElementById('password-submit');
+    if (button.disabled) return;
     const next = document.getElementById('new-password').value;
     const confirm = document.getElementById('confirm-password').value;
     if (next !== confirm) {
@@ -73,6 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     event.preventDefault();
     const form = event.currentTarget;
     const button = document.getElementById('people-submit');
+    if (button.disabled) return;
     setBusy(button, true, 'Creating…');
     try {
       const created = await requestJson('/api/users', jsonOptions('POST', {

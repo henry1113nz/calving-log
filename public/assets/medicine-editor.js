@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    if (submit.disabled) return;
     setBusy(submit, true, 'Saving…');
     showNotice('#medicine-notice', '');
     try {
@@ -104,6 +105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('rule-form').addEventListener('submit', async event => {
     event.preventDefault();
     const button = document.getElementById('rule-submit');
+    if (button.disabled) return;
     setBusy(button, true);
     try {
       await requestJson(`/api/drugs/${encodeURIComponent(drugId)}/rules`, jsonOptions('POST', { rule_name: textOrNull('rule_name'), description: textOrNull('rule_description'), milkings_once_daily: numberOrNull('rule_oad'), milkings_twice_daily: numberOrNull('rule_tad') }));

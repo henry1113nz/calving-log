@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await load();
   } catch(error) { showNotice('#schedule-result', error.message, 'error'); }
   form.addEventListener('submit', async event => {
-    event.preventDefault(); const button = form.querySelector('button'); setBusy(button, true);
+    event.preventDefault(); const button = form.querySelector('button'); if (button.disabled) return; setBusy(button, true);
     try {
       await requestJson('/api/milking-schedule', jsonOptions('POST', { effective_from: document.getElementById('effective_from').value, milkings_per_day: Number(document.getElementById('schedule_milkings_per_day').value), note: document.getElementById('schedule_note').value.trim() || null }));
       form.reset(); document.getElementById('effective_from').value = today(); await load(); showNotice('#schedule-result', 'Dated change saved. Review any existing holds affected by an operational change.', 'success');

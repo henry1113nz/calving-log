@@ -29,7 +29,7 @@ async function page(script, handler) {
   const context = vm.createContext({ document, window: { CalvingLog: {
     badge: text => `<span>${text}</span>`, escapeHtml: value => String(value ?? '').replace(/[&<>"']/g,
       character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])),
-    emptyState: (title, message) => `${title}: ${message}`, formatDate: value => value, humanize: value => value,
+    emptyState: (title, message) => `${title}: ${message}`, formatDate: value => value, formatTimestamp: value => value, humanize: value => value,
     jsonOptions: (method, body) => ({ method, body: JSON.stringify(body) }),
     requestJson: async (url, options) => { calls.push({ url, options }); return handler(url, options); },
     setBusy: (button, busy) => { button.disabled = busy; },
@@ -139,15 +139,24 @@ test('Ask rejects duplicate in-flight submissions and never reuses an old draft'
   await new Promise(resolve => setImmediate(resolve));
 });
 
-test('chat opens without paid calls and uses separate opt-in for demo query results', async () => {
+test('configured chat defaults AI and demo sharing on without sending any paid request', async () => {
   const ui = await page('chat.js', () => readyStatus);
   assert.deepEqual(ui.calls.map(call => call.url), ['/api/assistant/status']);
+  assert.equal(ui.element('chat-use-ai').checked, true);
+  assert.equal(ui.element('chat-share-data').checked, true);
+  assert.equal(ui.element('chat-share-data').disabled, false);
+  ui.element('chat-use-ai').checked = false;
+  await ui.element('chat-use-ai').listeners.change();
+  assert.equal(ui.element('chat-share-data').disabled, true);
+  assert.equal(ui.element('chat-share-data').checked, false);
+  assert.equal(ui.calls.length, 1);
+});
+
+test('unconfigured chat defaults to local mode with no data sharing', async () => {
+  const ui = await page('chat.js', () => ({ ...readyStatus, external_ai_available: false }));
   assert.equal(ui.element('chat-use-ai').checked, false);
   assert.equal(ui.element('chat-share-data').checked, false);
-  assert.equal(ui.element('chat-share-data').disabled, true);
-  ui.element('chat-use-ai').checked = true;
-  await ui.element('chat-use-ai').listeners.change();
-  assert.equal(ui.element('chat-share-data').disabled, false);
+  assert.equal(ui.element('chat-use-ai').disabled, true);
   assert.equal(ui.calls.length, 1);
 });
 
@@ -220,4 +229,21 @@ test('provider fallback is clearly displayed as a local lookup, not a successful
   assert.match(ui.element('chat-messages').innerHTML, /不是 AI 对话/);
   assert.match(ui.element('chat-messages').innerHTML, /External API unavailable/);
   assert.ok(!ui.element('chat-messages').innerHTML.includes('AI response'));
+});
+
+test('chat cannot send or clear twice while a context reset is still in flight', async () => {
+  let finish;
+  const ui = await page('chat.js', url => url === '/api/assistant/chat'
+    ? { reply: 'Demo answer', mode: 'external', provider: 'deepseek', conversation_id: 'old-context', sources: [] }
+    : url.endsWith('/clear') ? new Promise(resolve => { finish = resolve; }) : readyStatus);
+  ui.element('chat-question').value = 'Count'; await ui.element('chat-form').listeners.submit({ preventDefault() {} });
+  const reset = ui.element('chat-clear').listeners.click();
+  ui.element('chat-question').value = 'Follow up';
+  await ui.element('chat-form').listeners.submit({ preventDefault() {} });
+  await ui.element('chat-clear').listeners.click();
+  assert.equal(ui.calls.filter(call => call.url === '/api/assistant/chat').length, 1);
+  assert.equal(ui.calls.filter(call => call.url.endsWith('/clear')).length, 1);
+  assert.equal(ui.element('chat-submit').disabled, true);
+  finish({ cleared: true }); await reset;
+  assert.equal(ui.element('chat-submit').disabled, false);
 });
