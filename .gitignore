@@ -1,4 +1,5 @@
 node_modules
+tmp/
 calving-log.db
 *.db.backup-*
 backups/

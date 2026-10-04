@@ -535,7 +535,7 @@ package from being applied twice.
 
 ## 5. Reference data status
 
-> **All eight active reference products have current ACVM label evidence.**
+> **All eleven supplied active reference products have matching ACVM label evidence.**
 
 The initial v5 reference import was checked on 2026-08-17 against the MPI ACVM register
 and the current Approved Label attached to the matching registration.
@@ -551,6 +551,17 @@ and the current Approved Label attached to the matching registration.
 | Albiotic | A007712 | February 2024 | active; 4 OAD or 5 TAD milkings; meat 10 days |
 | Mastiplan | A011329 | July 2026 | active; 7 OAD or 10 TAD milkings; meat 3 days |
 | Noroclox DC 600 | A009281 | September 2026 | active; 35-day condition plus 8 milkings; meat 28 days |
+| Orbenin Dry Cow | A000888 | March 2026 | active; 30-day condition plus 8 milkings; meat 28 days |
+| Orbenin Enduro | A006036 | September 2026 | active; 35-day condition plus 8 milkings; meat 28 days |
+| Penclox 1200 | A010884 | December 2024 | active; labelled 3–6 treatments at 24-hour intervals; 5 OAD or 9 TAD milkings; meat 10 days |
+
+The October additions were reviewed on 2026-10-04. These are data packages, not a new
+schema migration: `user_version` remains 9. Importing the package a second time does not
+duplicate products, revisions or rules, and it does not rewrite historical event snapshots.
+For regimen rules, a move from OAD to TAD cannot shorten the original labelled elapsed-time
+period: the whole-date result uses the later of the counted-milking endpoint and the
+original-frequency duration. Actual milking timestamps and automatic milk-release decisions
+are outside this prototype's scope.
 
 A004495 is the registration for **Bovaclox Dry Cow**, not Bovaclox DC Xtra. Its Approved
 Label is not evidence for A009020 and must never be substituted merely because the trade

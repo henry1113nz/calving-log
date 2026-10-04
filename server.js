@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('./db');
 const { addDays, calculateWithdrawal, toDays } = require('./withdrawalCalculator');
 const { recommendDryOffTreatment } = require('./dryOffAdvisor');
-const { classifyIntent } = require('./assistant');
+const { classifyIntent, assistantConfig } = require('./assistant');
 const {
   clearCookieHeader, cookieHeader, createSession, parseCookies, passwordFields,
   requireAuth, requireRole, tokenHash, verifyPassword
@@ -206,6 +206,11 @@ const REVIEW_STATUSES = new Set([
   'awaiting_calving_date', 'requires_vet_advice', 'minimum_dry_period_breached'
 ]);
 
+function needsAuthoritativeReview(event) {
+  return REVIEW_STATUSES.has(event.withdrawal_status) ||
+    (event.calving_date_source === 'predicted' && event.calculation_basis === 'calving_date');
+}
+
 function openEventReview(eventId, reason, openedBy) {
   const existing = db.prepare(`
     SELECT id FROM event_reviews WHERE health_event_id = ? AND status = 'open'
@@ -227,6 +232,20 @@ function resolveOpenEventReview(eventId, resolution, resolvedBy) {
     WHERE health_event_id = ? AND status = 'open'
   `).run(resolution, resolvedBy, eventId);
 }
+
+// Existing estimates also need an accountable review, including expired planning dates.
+// No clinical snapshot is changed; the open-review guard makes this restart-safe.
+db.transaction(() => {
+  const estimates = db.prepare(`
+    SELECT health_events.id, health_events.created_by FROM health_events
+    JOIN drugs ON health_events.drug_id = drugs.id
+    WHERE health_events.deleted_at IS NULL AND health_events.calving_date_source = 'predicted'
+      AND drugs.calculation_basis = 'calving_date'
+  `).all();
+  for (const event of estimates) openEventReview(event.id,
+    'An expected calving date is planning evidence only. Record the actual calving date before milk release.',
+    event.created_by);
+})();
 
 // 产犊对账。
 //
@@ -339,7 +358,7 @@ app.post('/api/cows', (req, res) => {
 
 // 更新牛只信息。只覆盖请求里明确给出的字段,没给的保持原值,这样前端可以
 // 只提交改动的部分而不必回传整条记录。
-app.put('/api/cows/:id', (req, res) => {
+app.put('/api/cows/:id', requireRole('owner', 'vet'), (req, res) => {
   const existing = findOrNull('cows', req.params.id);
   if (!existing) {
     return res.status(404).json({ error: 'Cow not found' });
@@ -430,6 +449,7 @@ app.get('/api/drugs/reference-status', (req, res) => {
     ORDER BY d.is_active DESC, d.drug_name
   `).all().map(drug => ({
     ...drug,
+    rules: db.prepare('SELECT * FROM drug_withdrawal_rules WHERE drug_id = ? AND reference_revision_id = ? ORDER BY id').all(drug.id, drug.current_reference_revision_id),
     is_verified: drug.verified_on !== null,
     status: drug.is_active
       ? (drug.verified_on ? 'verified' : 'unverified')
@@ -754,6 +774,26 @@ app.put('/api/drugs/:id', requireRole('owner', 'vet'), (req, res) => {
   res.json(db.prepare('SELECT * FROM drugs WHERE id = ?').get(req.params.id));
 });
 
+app.post('/api/drugs/:id/rules', requireRole('owner', 'vet'), (req, res) => {
+  const drug = findOrNull('drugs', req.params.id);
+  if (!drug) return res.status(404).json({ error: 'Medicine not found' });
+  if (drug.is_active) return res.status(409).json({ error: 'Save this medicine inactive before adding label rules.' });
+  if (!drug.requires_regimen || drug.calculation_basis !== 'treatment_date' || drug.milk_withdrawal_unit !== 'milkings') return res.status(400).json({ error: 'Structured rules require a treatment-date medicine measured in milkings.' });
+  if (!drug.verified_on || !drug.current_reference_revision_id) return res.status(400).json({ error: 'Save complete label evidence before adding rules.' });
+  const once = drugInteger(req.body?.milkings_once_daily, 'milkings_once_daily', { nullable: true });
+  const twice = drugInteger(req.body?.milkings_twice_daily, 'milkings_twice_daily', { nullable: true });
+  const ruleName = cleanDrugText(req.body?.rule_name);
+  const description = cleanDrugText(req.body?.description);
+  if (once?.error || twice?.error) return res.status(400).json({ error: once?.error || twice?.error });
+  if (!ruleName || ruleName.length > 160 || !description || description.length > 2000 || (once === null && twice === null)) return res.status(400).json({ error: 'Provide a rule name, label course description and at least one labelled OAD/TAD value.' });
+  if ((once !== null && once > 500) || (twice !== null && twice > 500)) return res.status(400).json({ error: 'Check the labelled milking count (maximum 500).' });
+  const duplicate = db.prepare('SELECT id FROM drug_withdrawal_rules WHERE drug_id = ? AND reference_revision_id = ? AND lower(rule_name) = lower(?)').get(drug.id, drug.current_reference_revision_id, ruleName);
+  if (duplicate) return res.status(409).json({ error: 'This rule name already exists for the label revision.' });
+  const code = `revision_${drug.current_reference_revision_id}_${require('crypto').randomUUID()}`;
+  const inserted = db.prepare(`INSERT INTO drug_withdrawal_rules (drug_id, reference_revision_id, rule_code, rule_name, description, milkings_once_daily, milkings_twice_daily, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`).run(drug.id, drug.current_reference_revision_id, code, ruleName, description, once, twice);
+  res.status(201).json(db.prepare('SELECT * FROM drug_withdrawal_rules WHERE id = ?').get(inserted.lastInsertRowid));
+});
+
 // 还没核实的药。核实工作本身需要一份清单,这就是那份清单。
 app.get('/api/drugs/unverified', (req, res) => {
   const pending = db.prepare(`
@@ -996,8 +1036,10 @@ app.post('/api/events', (req, res) => {
 
   const newEvent = db.prepare('SELECT * FROM health_events WHERE id = ?').get(result.lastInsertRowid);
 
-  if (REVIEW_STATUSES.has(withdrawal.withdrawal_status)) {
-    openEventReview(Number(result.lastInsertRowid), withdrawal.message, req.user.id);
+  if (needsAuthoritativeReview({ ...newEvent, calculation_basis: drug?.calculation_basis })) {
+    openEventReview(Number(result.lastInsertRowid), newEvent.calving_date_source === 'predicted'
+      ? 'An expected calving date is planning evidence only. Record the actual calving date before milk release.'
+      : withdrawal.message, req.user.id);
   }
 
   res.status(201).json({
@@ -1119,10 +1161,7 @@ app.put('/api/events/:id', requireRole('owner', 'vet'), (req, res) => {
       VALUES (?, ?, ?, ?, ?)
     `).run(req.params.id, correctionReason, JSON.stringify(existing), JSON.stringify(row), req.user.id);
 
-    const alreadyUnderReview = db.prepare(`
-      SELECT id FROM event_reviews WHERE health_event_id = ? AND status = 'open'
-    `).get(row.id);
-    const reviewedEstimate = alreadyUnderReview && drug?.calculation_basis === 'calving_date'
+    const reviewedEstimate = drug?.calculation_basis === 'calving_date'
       && row.calving_date_source !== 'actual';
     if (REVIEW_STATUSES.has(row.withdrawal_status) || reviewedEstimate) {
       const reason = reviewedEstimate
@@ -1180,6 +1219,10 @@ app.delete('/api/events/:id', requireRole('owner', 'vet'), (req, res) => {
 // 未解决的记录必须自己说明为什么解除不了。清单和助手用同一句话,人才不会以为
 // 这是两回事。
 function unresolvedHoldWarning(row) {
+  if (row.calving_date_source === 'predicted') {
+    return `The expected calving date ${row.calving_date} is not an actual calving record. ` +
+      'Any estimated clear date is for planning only. Keep milk out until the actual date is recorded and the label conditions are met.';
+  }
   if (row.withdrawal_status === 'awaiting_calving_date') {
     return 'No calving date is recorded for this dry-cow treatment. Record the actual ' +
       'calving before any milk enters the vat.';
@@ -1236,6 +1279,7 @@ function vatExclusions(today = new Date().toISOString().split('T')[0]) {
     WHERE health_events.deleted_at IS NULL
       AND health_events.withdrawal_end_date IS NOT NULL
       AND health_events.withdrawal_end_date >= ?
+      AND NOT (health_events.calving_date_source IS 'predicted' AND drugs.calculation_basis IS 'calving_date')
     ORDER BY health_events.withdrawal_end_date ASC
   `).all(today);
 
@@ -1268,21 +1312,24 @@ function vatExclusions(today = new Date().toISOString().split('T')[0]) {
       health_events.event_type,
       health_events.event_date,
       drugs.drug_name,
+      drugs.calculation_basis,
+      health_events.calving_date,
+      health_events.calving_date_source,
       health_events.withdrawal_status
     FROM health_events
     JOIN cows ON health_events.cow_id = cows.id
     LEFT JOIN drugs ON health_events.drug_id = drugs.id
     WHERE health_events.deleted_at IS NULL
-      AND health_events.withdrawal_status IN (
+      AND (health_events.withdrawal_status IN (
         'awaiting_calving_date', 'requires_vet_advice', 'minimum_dry_period_breached'
-      )
+      ) OR (health_events.calving_date_source = 'predicted' AND drugs.calculation_basis = 'calving_date'))
     ORDER BY health_events.event_date DESC
   `).all().map(row => ({
     ...row,
     withdrawal_end_date: null,
     eligible_from_date: null,
     days_remaining: null,
-    is_estimate: false,
+    is_estimate: row.calving_date_source === 'predicted',
     requires_attention: true,
     warnings: [unresolvedHoldWarning(row)]
   }));
@@ -1376,6 +1423,7 @@ function assistantCowStatus(question, today = new Date().toISOString().split('T'
       health_events.milking_schedule_snapshot,
       health_events.drug_reference_revision_id,
       drugs.drug_name,
+      drugs.calculation_basis,
       drugs.verified_on AS drug_verified_on,
       drug_withdrawal_rules.rule_name AS drug_rule_name,
       drug_reference_revisions.acvm_registration_no,
@@ -1387,16 +1435,15 @@ function assistantCowStatus(question, today = new Date().toISOString().split('T'
       ON health_events.drug_reference_revision_id = drug_reference_revisions.id
     WHERE health_events.cow_id = ? AND health_events.deleted_at IS NULL
     ORDER BY health_events.event_date DESC, health_events.id DESC
-    LIMIT 10
   `).all(reference.cow.id);
 
   const events = rows.map(row => {
-    const requiresAttention = REVIEW_STATUSES.has(row.withdrawal_status);
+    const requiresAttention = needsAuthoritativeReview(row);
     const onHoldToday = Boolean(row.withdrawal_end_date && row.withdrawal_end_date >= today);
     return {
       ...row,
       milking_schedule_snapshot: assistantScheduleSnapshot(row.milking_schedule_snapshot),
-      eligible_from_date: row.withdrawal_end_date ? addDays(row.withdrawal_end_date, 1) : null,
+      eligible_from_date: row.withdrawal_end_date && !requiresAttention ? addDays(row.withdrawal_end_date, 1) : null,
       days_remaining: onHoldToday
         ? Math.ceil((new Date(row.withdrawal_end_date) - new Date(today)) / (1000 * 60 * 60 * 24))
         : null,
@@ -1510,20 +1557,47 @@ function assistantEventDraft(question, today = new Date().toISOString().split('T
 
 function assistantVatAnswer() {
   const rows = vatExclusions();
+  const cowCount = new Set(rows.map(row => row.tag_number)).size;
   const unresolvedCount = rows.filter(row => row.requires_attention || !row.withdrawal_end_date).length;
   return {
     supported: true,
     source: 'deterministic_database_query',
     count: rows.length,
+    cow_count: cowCount,
     unresolved_count: unresolvedCount,
     message: rows.length
-      ? `${rows.length} cow${rows.length === 1 ? '' : 's'} must stay out of the vat today. ` +
+      ? `${cowCount} cow${cowCount === 1 ? '' : 's'} must stay out of the vat today. ` +
         `${unresolvedCount} record${unresolvedCount === 1 ? ' still needs' : 's still need'} human review.`
       : 'No medicine holds are listed today. Other animal-health and farm holds must still be checked.',
     rows
   };
 }
 
+app.get('/api/assistant/status', (req, res) => {
+  const { configured, provider, model } = assistantConfig();
+  res.json({ external_ai_available: configured, provider: configured ? provider : null, model: configured ? model : null, supported_intents: ['vat_exclusions_today', 'cow_status', 'draft_event', 'medicine_info', 'schedule_info', 'workflow_help'], privacy: 'Only the submitted question is sent to the provider when you opt in. Farm records, passwords and labels are not sent.' });
+});
+
+function assistantMedicineAnswer(question) {
+  const drugs = db.prepare('SELECT * FROM drugs ORDER BY drug_name').all();
+  const text = question.toLowerCase();
+  const matches = drugs.filter(drug => text.includes(drug.drug_name.toLowerCase()) || (drug.acvm_registration_no && text.includes(drug.acvm_registration_no.toLowerCase())));
+  const selected = matches.length ? matches : drugs.filter(drug => drug.is_active);
+  return { supported: true, source: 'verified_reference_database', message: matches.length ? 'Stored label references for the named medicine. Confirm the actual course against the label before recording treatment.' : 'Active medicine library. Include a product name to see its label evidence.', medicines: selected.map(drug => ({ ...drug, rules: db.prepare('SELECT * FROM drug_withdrawal_rules WHERE drug_id = ? AND reference_revision_id = ?').all(drug.id, drug.current_reference_revision_id) })) };
+}
+
+function assistantWorkflowAnswer(role) {
+  return { supported: true, source: 'application_help', message: `Signed in as ${role}. Choose the job below to open the relevant page.`, steps: [
+    { title: 'Daily milk holds', text: 'Dashboard lists current and unresolved medicine holds. Missing information needs review.', href: '/', label: 'Open Dashboard' },
+    { title: 'Record treatment or calving', text: 'Choose the cow, actual event date, medicine and matching label rule. Confirm the last treatment date before saving.', href: '/events.html', label: 'Open Treatments' },
+    { title: 'Dry-off', text: 'Dry-off means stopping milking before the next calving. Review SCC evidence and the veterinarian\'s plan.', href: '/dry-off.html', label: 'Open Dry-off' },
+    { title: 'OAD / TAD', text: 'OAD is once-a-day milking; TAD is twice-a-day milking. The farm schedule has effective dates. Only an owner can add changes.', href: '/schedule.html', label: 'Open milking schedule' },
+    { title: 'Medicine references', text: 'Owners and vets can add or edit evidence and labelled rules. Milkers can read references and record events, but cannot edit medicine data or past events.', href: '/medicines.html', label: 'Open Medicines' },
+    { title: 'Review and feedback', text: 'Correct the source event before resolving a review. Submit trial feedback to describe anything confusing.', href: '/reviews.html', label: 'Open Reviews' }
+  ] };
+}
+
+const assistantRequests = new Map();
 app.post('/api/assistant/query', async (req, res) => {
   const question = String(req.body?.question || '').trim();
   if (!question) return res.status(400).json({ error: 'Enter a question' });
@@ -1531,10 +1605,20 @@ app.post('/api/assistant/query', async (req, res) => {
     return res.status(400).json({ error: 'Question must be 500 characters or fewer' });
   }
 
-  const classification = await classifyIntent(question);
+  const useAI = req.body?.use_ai === true;
+  if (useAI && assistantConfig().configured) {
+    const now = Date.now();
+    for (const [id, item] of assistantRequests) if (item.until <= now) assistantRequests.delete(id);
+    const recent = assistantRequests.get(req.user.id) || { count: 0, until: now + 60000 };
+    if (recent.count >= 20) return res.status(429).json({ error: 'Please wait a minute before sending more AI requests.' });
+    recent.count += 1;
+    assistantRequests.set(req.user.id, recent);
+  }
+  const classification = await classifyIntent(question, { useAI });
   const envelope = {
     intent: classification.intent,
     assistant_mode: classification.mode,
+    provider: classification.provider || null,
     notice: classification.notice
   };
 
@@ -1546,6 +1630,13 @@ app.post('/api/assistant/query', async (req, res) => {
   }
   if (classification.intent === 'draft_event') {
     return res.json({ ...envelope, ...assistantEventDraft(question) });
+  }
+  if (classification.intent === 'medicine_info') return res.json({ ...envelope, ...assistantMedicineAnswer(question) });
+  if (classification.intent === 'workflow_help') return res.json({ ...envelope, ...assistantWorkflowAnswer(req.user.role) });
+  if (classification.intent === 'schedule_info') {
+    const today = new Date().toISOString().slice(0, 10);
+    const entries = db.prepare('SELECT effective_from, milkings_per_day, note FROM milking_schedule ORDER BY effective_from DESC').all();
+    return res.json({ ...envelope, supported: true, source: 'dated_schedule_database', message: 'OAD = once daily; TAD = twice daily. Changes apply from their effective date; saved event snapshots retain their original basis.', today, entries });
   }
 
   return res.json({
@@ -1568,6 +1659,7 @@ app.get('/api/reviews', (req, res) => {
   const params = status === 'all' ? [] : [status];
   res.json(db.prepare(`
     SELECT event_reviews.*, health_events.withdrawal_status, health_events.withdrawal_end_date,
+           health_events.calving_date_source,
            health_events.event_date, cows.tag_number, drugs.drug_name,
            opened.name AS opened_by_name, resolved.name AS resolved_by_name
     FROM event_reviews
@@ -1584,15 +1676,17 @@ app.get('/api/reviews', (req, res) => {
 
 app.post('/api/reviews/:id/resolve', requireRole('owner', 'vet'), (req, res) => {
   const review = db.prepare(`
-    SELECT event_reviews.*, health_events.withdrawal_status
+    SELECT event_reviews.*, health_events.withdrawal_status, health_events.calving_date_source,
+           drugs.calculation_basis
     FROM event_reviews
     JOIN health_events ON event_reviews.health_event_id = health_events.id
+    LEFT JOIN drugs ON health_events.drug_id = drugs.id
     WHERE event_reviews.id = ?
   `).get(req.params.id);
   if (!review || review.status !== 'open') {
     return res.status(404).json({ error: 'Open review not found' });
   }
-  if (REVIEW_STATUSES.has(review.withdrawal_status)) {
+  if (needsAuthoritativeReview(review)) {
     return res.status(409).json({
       error: 'Correct the event until it has an authoritative result before resolving this review'
     });

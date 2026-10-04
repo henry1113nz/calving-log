@@ -93,7 +93,7 @@ try {
   const actualTables = db.prepare(`
     SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name
   `).all().map(r => r.name);
-  check('all v8 tables are present', expectedTables.every(t => actualTables.includes(t)),
+  check('all current schema tables are present', expectedTables.every(t => actualTables.includes(t)),
     actualTables.join(', '));
 
   const columnsOf = table => db.prepare(`PRAGMA table_info("${table}")`).all().map(c => c.name);
@@ -584,8 +584,8 @@ try {
   console.log();
   // v5 把参考数据核验从“提示”升级成发布门槛。只要启用的药有一条缺出处,
   // 脚本就以非零状态退出,不能再带着红色警告仍然声称数据库验证通过。
-  check('the eight verified active drug references are available',
-    drugRows.length >= 8, `${drugRows.length} active drug(s)`);
+  check('the eleven verified active drug references are available',
+    drugRows.length >= 11, `${drugRows.length} active drug(s)`);
   check('every active drug has complete verified ACVM provenance',
     unverified.length === 0,
     unverified.length
@@ -631,6 +631,9 @@ try {
   const albiotic = byName.Albiotic;
   const mastiplan = byName.Mastiplan;
   const noroclox = byName['Noroclox DC 600'];
+  const orbeninDry = byName['Orbenin Dry Cow'];
+  const orbeninEnduro = byName['Orbenin Enduro'];
+  const penclox = byName['Penclox 1200'];
 
   check('Mastalone uses 8 milkings and a 30-day meat withholding period',
     mastalone && mastalone.milk_withdrawal_value === 8
@@ -701,6 +704,25 @@ try {
       && noroclox.milk_withdrawal_unit === 'milkings'
       && noroclox.meat_withdrawal_days === 28,
     JSON.stringify(noroclox));
+
+  for (const [product, registration, minimum] of [
+    [orbeninDry, 'A000888', 30], [orbeninEnduro, 'A006036', 35]
+  ]) {
+    check(`${registration} has its verified conditional dry-cow period`,
+      product && product.acvm_registration_no === registration
+        && product.calculation_basis === 'calving_date' && product.minimum_dry_period_days === minimum
+        && product.milk_withdrawal_value === 8 && product.milk_withdrawal_unit === 'milkings'
+        && product.meat_withdrawal_days === 28, JSON.stringify(product));
+  }
+  const pencloxRules = penclox
+    ? db.prepare('SELECT * FROM drug_withdrawal_rules WHERE drug_id = ? AND reference_revision_id = ?')
+      .all(penclox.id, penclox.current_reference_revision_id)
+    : [];
+  check('Penclox 1200 has its explicit OAD/TAD course and current label evidence',
+    penclox && penclox.acvm_registration_no === 'A010884' && penclox.requires_regimen === 1
+      && penclox.meat_withdrawal_days === 10 && pencloxRules.length === 1
+      && pencloxRules[0].milkings_once_daily === 5 && pencloxRules[0].milkings_twice_daily === 9,
+    JSON.stringify({ product: penclox, rules: pencloxRules }));
 
   const unselectedRequiredRegimens = db.prepare(`
     SELECT COUNT(*) AS count

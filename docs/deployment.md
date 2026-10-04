@@ -23,6 +23,33 @@ application restart does not reset it to the environment value.
 Use HTTPS at the hosting layer; the session cookie is `HttpOnly`, `SameSite=Strict` and
 marked `Secure` when Express receives the original HTTPS request through the trusted proxy.
 
+## Optional external AI
+
+The local Ask assistant works without a paid service. To enable optional DeepSeek wording
+classification, add these to **Railway → calving-log → Variables** and deploy the change:
+
+```text
+AI_PROVIDER=deepseek
+AI_MODEL=deepseek-flash
+DEEPSEEK_API_KEY=<your own secret key>
+```
+
+Create a key in the [DeepSeek API platform](https://platform.deepseek.com/). Model names and
+charges should be checked against the [official pricing page](https://api-docs.deepseek.com/quick_start/pricing/).
+Do not put the key in browser JavaScript, GitHub, screenshots or chat. Never enter a literal
+placeholder as a real key. OpenAI is also supported with `AI_PROVIDER=openai`,
+`AI_MODEL=gpt-4.1-mini`, and `OPENAI_API_KEY`; only the selected provider is contacted.
+
+After deployment, Ask should show the configured provider and enable its opt-in checkbox.
+`GET /api/assistant/status` reveals availability, not the key. Test one harmless question
+with opt-in; an external-mode badge confirms successful classification. A missing key,
+timeout, provider error or invalid output uses the local answer and shows a fallback notice.
+A configured key alone does not prove that it has credit or that the upstream model works.
+Only the typed question is sent; warn participants not to type identifying or clinical details.
+Database rows and safety calculations remain server-side. External calls have an eight-second
+timeout and a per-user in-memory limit of twenty requests per minute. Agree this data transfer
+with the supervisor before asking farm-trial participants to opt in.
+
 ## Container deployment
 
 ```bash
@@ -113,8 +140,8 @@ treatments, review items and vat-exclusion list.
 - Session state is stored in SQLite and expires after 12 hours.
 - Failed sign-ins are limited in memory to 10 attempts per username and IP every 15 minutes.
   A distributed deployment would need a shared limiter.
-- The assistant supports three intents: the daily vat list, one cow's recorded hold, and a
-  calving draft that only a person can confirm. External-service availability never changes the
+- The assistant supports six intents: the daily vat list, one cow's recorded hold, a calving
+  draft, medicine references, milking plan, and workflow help. External-service availability never changes the
   deterministic database result, and the assistant endpoint itself writes nothing.
 - A multi-farm or multi-instance version should move operational data and sessions to a
   managed relational database.

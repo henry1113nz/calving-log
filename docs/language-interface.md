@@ -4,7 +4,7 @@ Natural language is an input convenience, not a source of withholding instructio
 The existing structured API, verified ACVM reference revision and deterministic calculator
 remain authoritative.
 
-`POST /api/assistant/query` and the `/assistant.html` page implement three read-only or
+`POST /api/assistant/query` and the `/assistant.html` page implement six read-only or
 draft-only intents. Every answer is produced by the same server-side queries and stored
 snapshots that the rest of the application uses.
 
@@ -21,11 +21,18 @@ snapshots that the rest of the application uses.
    writes nothing. Confirming it sends the draft through the ordinary `POST /api/events` route,
    so the signed-in user is the actor and the normal validation, review queue, snapshot and audit
    trail all apply.
+4. **Medicine reference** — “Show Penclox 1200 label.” Current product evidence and OAD/TAD
+   course rules come from the reference database, not model memory.
+5. **Milking plan** — “What does OAD / TAD mean?” The current dated schedule and terminology
+   are returned, with a link to its dedicated page.
+6. **Workflow help** — “How do I add medicine?” The reply gives page links and role restrictions.
 
 ## What the local matcher is allowed to do
 
 The local matcher classifies the wording into one intent: `vat_exclusions_today`, `cow_status`,
-`draft_event` or `unsupported`. That is its entire contribution.
+`draft_event`, `medicine_info`, `schedule_info`, `workflow_help` or `unsupported`.
+That is its entire contribution. Cow status reads all non-deleted history, so ten newer
+harmless records cannot hide an older unresolved hold.
 
 Entities are resolved by the server, not by the matcher:
 
@@ -36,8 +43,26 @@ Entities are resolved by the server, not by the matcher:
 - a medicine, a treatment regimen and a withholding period are never chosen. Treatment wording
   produces a draft with those fields deliberately blank and a pointer to the Treatments page.
 
-Farm records, ACVM label data, calculated dates and user questions stay inside the application.
-The deliberately narrow English/Chinese matcher does not call an external service.
+By default, records, labels, dates and questions stay inside the application. The local
+English/Chinese matcher calls no external service.
+
+## Optional external classification
+
+DeepSeek is the default optional provider; OpenAI is also supported. See
+[deployment.md](deployment.md) for server-side environment variables. An external call
+requires a configured key and explicit opt-in on Ask. Only the fixed classification prompt
+and typed question are sent, never database rows or label documents. The page warns people
+not to type identifying or clinical details; agree this transfer with the supervisor before a trial.
+
+The provider returns one JSON intent from the allow-list, not prose or extracted entities.
+The server rejects extra keys, unknown intents, malformed JSON, empty content and incomplete
+responses. A model cannot turn a question into a record draft. Invalid output, provider errors
+or the eight-second timeout fall back to local matching with a visible notice. A per-user
+in-memory limiter permits twenty external requests per minute. No key is exposed to the browser.
+
+`test-assistant.js` mocks provider responses to test privacy, opt-in, missing keys, invalid output,
+unsafe draft attempts and timeout fallback without spending API credit. Live upstream success
+still needs a valid key and credit; a configured-key status alone does not prove a successful call.
 
 ## Prohibited behaviour
 

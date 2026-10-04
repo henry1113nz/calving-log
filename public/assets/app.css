@@ -51,6 +51,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   width: 252px;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   padding: 28px 20px 22px;
   color: #f7fbf8;
   background:
@@ -380,6 +381,12 @@ tbody tr:hover { background: #fafcf9; }
 .medicine-meta dd { margin: 0; overflow-wrap: anywhere; }
 .medicine-label { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); color: #4e5c54; font-size: 16px; }
 .medicine-label summary { cursor: pointer; color: var(--forest-700); font-weight: 750; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #a87920; outline-offset: 3px; }
+@media print {
+  .sidebar, .mobile-nav, .mobile-topbar, .page-actions, .prototype-banner button, .form-actions { display: none !important; }
+  body, .app-main { margin: 0 !important; padding: 0 !important; background: white !important; }
+  .card, .hold-row { box-shadow: none; break-inside: avoid; }
+}
 
 .timeline { position: relative; display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
 .timeline::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: 8px; width: 2px; background: #dce4df; }

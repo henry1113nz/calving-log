@@ -92,15 +92,19 @@ const PRODUCTS = [
 ];
 
 function syncAdditionalAcvmReferenceData(db) {
+  return syncReferencePackage(db, { products: PRODUCTS, version: REFERENCE_DATA_VERSION, verifiedOn: VERIFIED_ON, sourceSummary: 'MPI ACVM Approved Labels: A007712-24, A011329-10 and A009281-20; reviewed 2026-09-28' });
+}
+
+function syncReferencePackage(db, { products, version, verifiedOn, sourceSummary }) {
   const imported = db.prepare(
     'SELECT version, imported_at FROM reference_data_imports WHERE version = ?'
-  ).get(REFERENCE_DATA_VERSION);
+  ).get(version);
   if (imported) {
-    return { applied: false, version: REFERENCE_DATA_VERSION, imported_at: imported.imported_at };
+    return { applied: false, version, imported_at: imported.imported_at };
   }
 
   const apply = db.transaction(() => {
-    for (const product of PRODUCTS) {
+    for (const product of products) {
       const byName = db.prepare('SELECT * FROM drugs WHERE drug_name = ?').get(product.drug_name);
       const byRegistration = db.prepare(
         'SELECT * FROM drugs WHERE acvm_registration_no = ?'
@@ -126,7 +130,7 @@ function syncAdditionalAcvmReferenceData(db) {
           product.milk_withdrawal_unit, product.meat_withdrawal_days,
           product.calculation_basis, product.minimum_dry_period_days,
           product.whp_depends_on_dose, product.label_wording, product.source_reference,
-          VERIFIED_ON, product.acvm_registration_no, product.label_revision,
+          verifiedOn, product.acvm_registration_no, product.label_revision,
           VERIFIED_BY, product.requires_regimen
         );
         drugId = Number(inserted.lastInsertRowid);
@@ -146,7 +150,7 @@ function syncAdditionalAcvmReferenceData(db) {
         product.milk_withdrawal_unit, product.meat_withdrawal_days,
         product.calculation_basis, product.minimum_dry_period_days,
         product.whp_depends_on_dose, product.label_wording, product.source_reference,
-        VERIFIED_ON, product.acvm_registration_no, product.label_revision,
+        verifiedOn, product.acvm_registration_no, product.label_revision,
         VERIFIED_BY, product.requires_regimen, drugId
       );
 
@@ -162,7 +166,7 @@ function syncAdditionalAcvmReferenceData(db) {
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
           drugId, product.acvm_registration_no, product.label_revision,
-          product.label_wording, product.source_reference, VERIFIED_ON, VERIFIED_BY
+          product.label_wording, product.source_reference, verifiedOn, VERIFIED_BY
         );
         revision = { id: Number(inserted.lastInsertRowid) };
       }
@@ -207,17 +211,18 @@ function syncAdditionalAcvmReferenceData(db) {
       INSERT INTO reference_data_imports (version, source_summary)
       VALUES (?, ?)
     `).run(
-      REFERENCE_DATA_VERSION,
-      'MPI ACVM Approved Labels: A007712-24, A011329-10 and A009281-20; reviewed 2026-09-28'
+      version,
+      sourceSummary
     );
   });
 
   apply();
-  return { applied: true, version: REFERENCE_DATA_VERSION, products_added: PRODUCTS.length };
+  return { applied: true, version, products_added: products.length };
 }
 
 module.exports = {
   PRODUCTS,
   REFERENCE_DATA_VERSION,
-  syncAdditionalAcvmReferenceData
+  syncAdditionalAcvmReferenceData,
+  syncReferencePackage
 };

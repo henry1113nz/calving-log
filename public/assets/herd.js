@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     badge, emptyState, escapeHtml, formatDate, humanize, jsonOptions,
     requestJson, setBusy, showNotice
   } = window.CalvingLog;
-  const state = { cows: [] };
+  const state = { cows: [], user: null };
   const form = document.getElementById('cow-form');
 
   function updateStats() {
@@ -41,9 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="cow-head"><div><p class="cow-tag">Cow ${escapeHtml(cow.tag_number)}</p><div class="list-meta"><span>${escapeHtml(cow.breed || 'Breed not recorded')}</span>${statusBadge(cow.status)}</div></div></div>
         <p class="list-detail">Lactation ${cow.lactation_number ?? '—'}${cow.birth_date ? ` · Born ${escapeHtml(formatDate(cow.birth_date, { short: true }))}` : ''}</p>
         <div class="form-actions">
-          <a class="btn small" href="/events.html?cow=${cow.id}">Record event</a>
-          <a class="btn secondary small" href="/dry-off.html?cow=${cow.id}">Dry-off</a>
-          <button class="btn secondary small edit-cow" type="button" data-id="${cow.id}">Edit</button>
+          ${cow.status !== 'culled' ? `<a class="btn small" href="/events.html?cow=${cow.id}">Record event</a><a class="btn secondary small" href="/dry-off.html?cow=${cow.id}">Dry-off</a>` : ''}
+          <a class="btn secondary small" href="/cow.html?id=${cow.id}">History & status</a>
+          ${['owner', 'vet'].includes(state.user?.role) ? `<button class="btn secondary small edit-cow" type="button" data-id="${cow.id}">Edit</button>` : ''}
         </div>
       </article>`).join('')}</div>`;
 
@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadCows() {
     try {
-      state.cows = await requestJson('/api/cows');
+      [state.cows, state.user] = await Promise.all([requestJson('/api/cows'), requestJson('/api/auth/me')]);
       renderCows();
     } catch (error) {
       document.getElementById('cow-list').innerHTML = emptyState('Unable to load herd', error.message);

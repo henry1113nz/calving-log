@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `<ul class="list">${rows.map(row => `
       <li class="list-row hold-row urgent">
         <div class="list-main"><p class="list-title">Cow ${escapeHtml(row.tag_number)} · ${escapeHtml(row.drug_name || 'Medicine event')}</p>
-          <div class="list-meta">${badge(humanize(row.withdrawal_status), 'danger')}<span>Event ${escapeHtml(formatDate(row.event_date, { short: true }))}</span></div>
+          <div class="list-meta">${badge(row.calving_date_source === 'predicted' ? 'Actual calving needed' : humanize(row.withdrawal_status), 'danger')}<span>Event ${escapeHtml(formatDate(row.event_date, { short: true }))}</span></div>
           <p class="list-detail">${escapeHtml(row.reason)}</p>
         </div>
         <div class="list-actions"><a class="btn small" href="${canCorrect ? `/events.html?edit=${row.health_event_id}` : '/events.html'}">${canCorrect ? 'Correct event' : 'View events'}</a></div>
@@ -28,8 +28,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const open = rows.filter(row => row.status === 'open');
     const resolved = rows.filter(row => row.status === 'resolved');
     document.getElementById('review-open-count').textContent = open.length;
-    document.getElementById('review-calving-count').textContent = open.filter(row => row.withdrawal_status === 'awaiting_calving_date').length;
-    document.getElementById('review-vet-count').textContent = open.filter(row => row.withdrawal_status !== 'awaiting_calving_date').length;
+    document.getElementById('review-calving-count').textContent = open.filter(row => row.withdrawal_status === 'awaiting_calving_date' || row.calving_date_source === 'predicted').length;
+    document.getElementById('review-vet-count').textContent = open.filter(row => row.withdrawal_status !== 'awaiting_calving_date' && row.calving_date_source !== 'predicted').length;
     document.getElementById('review-resolved-count').textContent = resolved.length;
     document.getElementById('open-reviews').className = '';
     document.getElementById('resolved-reviews').className = '';

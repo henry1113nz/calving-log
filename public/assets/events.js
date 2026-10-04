@@ -95,6 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function statusBadge(event) {
     const status = event.withdrawal_status;
+    if (event.calving_date_source === 'predicted' && event.drug_id) return badge('Estimated · actual calving needed', 'warning');
     if (status === 'calculated') return badge('Calculated', 'success');
     if (status === 'not_applicable') return badge('No withholding');
     if (status === 'awaiting_calving_date') return badge('Awaiting calving', 'warning');
@@ -126,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <tr>
             <td><strong>${escapeHtml(formatDate(event.event_date, { short: true }))}</strong><br><span class="list-detail">Cow ${escapeHtml(event.tag_number)}</span></td>
             <td><strong>${escapeHtml(humanize(event.event_type))}</strong>${event.drug_name ? `<br><span class="list-detail">${escapeHtml(event.drug_name)}${event.drug_rule_name ? ` · ${escapeHtml(event.drug_rule_name)}` : ''}</span>` : ''}${event.diagnosis ? `<br><span class="list-detail">${escapeHtml(humanize(event.diagnosis))}</span>` : ''}</td>
-            <td>${statusBadge(event)}${event.withdrawal_end_date ? `<br><span class="list-detail">Clear ${escapeHtml(formatDate(event.withdrawal_end_date, { short: true }))}</span>` : ''}${event.milkings_per_day_applied ? `<br><span class="list-detail">${escapeHtml(event.milkings_per_day_applied)}× milking snapshot</span>` : ''}</td>
+            <td>${statusBadge(event)}${event.withdrawal_end_date ? `<br><span class="list-detail">${event.calving_date_source === 'predicted' ? 'Planning estimate' : 'Hold through'} ${escapeHtml(formatDate(event.withdrawal_end_date, { short: true }))}</span>` : ''}${event.milkings_per_day_applied ? `<br><span class="list-detail">${escapeHtml(event.milkings_per_day_applied)}× milking snapshot</span>` : ''}</td>
             <td>${escapeHtml(event.created_by_name || 'Not recorded')}${event.notes ? `<br><span class="list-detail">${escapeHtml(event.notes)}</span>` : ''}</td>
             <td><div class="list-actions">${canCorrect ? `<button class="btn secondary small edit-event" data-id="${event.id}" type="button">Correct</button>` : ''}<button class="btn secondary small history-event" data-id="${event.id}" type="button">History</button>${canCorrect ? `<button class="btn danger small delete-event" data-id="${event.id}" type="button">Delete</button>` : ''}</div></td>
           </tr>`).join('')}</tbody>
@@ -182,7 +183,10 @@ document.addEventListener('DOMContentLoaded', () => {
     calvingSource.value = row.calving_date_source || 'predicted';
     document.getElementById('drug_id').value = row.drug_id || '';
     document.getElementById('diagnosis').value = row.diagnosis || '';
-    document.getElementById('milkings_per_day').value = '';
+    let priorSchedule = [];
+    try { priorSchedule = JSON.parse(row.milking_schedule_snapshot || '[]'); } catch { /* legacy snapshot */ }
+    document.getElementById('milkings_per_day').value =
+      (Array.isArray(priorSchedule) ? priorSchedule : []).find(entry => entry.source === 'event_override')?.milkings_per_day || '';
     document.getElementById('notes').value = row.notes || '';
     updateDrugPreview();
     updateCalvingSourceState();
@@ -229,9 +233,13 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('cow_id').value = queryCow;
       }
       const editId = Number(new URLSearchParams(window.location.search).get('edit'));
-      if (editId) startEdit(editId);
+      const queryDrug = new URLSearchParams(window.location.search).get('drug');
+      if (queryDrug && drugs.some(drug => String(drug.id) === queryDrug)) drugSelect.value = queryDrug;
       renderEvents();
-      updateDrugPreview();
+      if (editId) startEdit(editId);
+      else updateDrugPreview();
+      const historyId = Number(new URLSearchParams(window.location.search).get('history'));
+      if (historyId) await showCorrectionHistory(historyId);
     } catch (error) {
       document.getElementById('event-list').innerHTML = emptyState('Unable to load events', error.message);
       showNotice('#event-result', error.message, 'error');

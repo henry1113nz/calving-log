@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let pendingDraft = null;
 
   function modeBadge(payload) {
-    return badge('Local constrained intent', 'info');
+    return badge(payload.assistant_mode === 'external' ? `${payload.provider} AI understood the request` : 'Local assistant', 'info');
   }
 
   function warningList(warnings) {
@@ -88,7 +88,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return `<li class="list-row${event.requires_attention ? ' hold-row urgent' : ''}">
           <div class="list-main">
             <p class="list-title">${escapeHtml(formatDate(event.event_date, { short: true }))} · ${escapeHtml(humanize(event.event_type))}${event.drug_name ? ` · ${escapeHtml(event.drug_name)}` : ''}</p>
-            <p class="list-detail">${event.withdrawal_end_date
+            <p class="list-detail">${event.is_estimate
+              ? `Planning estimate only${event.withdrawal_end_date ? `: ${escapeHtml(formatDate(event.withdrawal_end_date, { short: true }))}` : ''}. Record actual calving before any release.`
+              : event.withdrawal_end_date
               ? `Hold through ${escapeHtml(formatDate(event.withdrawal_end_date, { short: true }))}; earliest eligible ${escapeHtml(formatDate(event.eligible_from_date, { short: true }))}${event.days_remaining !== null && event.days_remaining !== undefined ? ` · ${escapeHtml(event.days_remaining)} day${event.days_remaining === 1 ? '' : 's'} left` : ''}.`
               : escapeHtml(`No clear date is stored (${humanize(event.withdrawal_status)}).`)}</p>
             ${evidenceLine(event)}
@@ -164,6 +166,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (payload.intent === 'cow_status') return renderCowStatus(payload);
     if (payload.intent === 'draft_event') return renderDraft(payload);
+    if (payload.intent === 'medicine_info') {
+      result.innerHTML = `<div class="notice info"><strong>${escapeHtml(payload.message)}</strong><br>${modeBadge(payload)}</div><ul class="list">${(payload.medicines || []).map(drug => `<li><h3>${escapeHtml(drug.drug_name)} ${badge(drug.is_active ? 'Active' : 'Inactive', drug.is_active ? 'success' : 'warning')}</h3><p>${escapeHtml(drug.label_wording || 'No verified wording available.')}</p><p class="list-detail">${escapeHtml(drug.acvm_registration_no)} · ${escapeHtml(drug.label_revision)} · Checked ${escapeHtml(drug.verified_on || 'Not verified')}</p>${(drug.rules || []).map(rule => `<p>${escapeHtml(rule.rule_name)}: OAD ${rule.milkings_once_daily ?? 'not labelled'}; TAD ${rule.milkings_twice_daily ?? 'not labelled'} milkings</p>`).join('')}<a class="btn secondary small" href="/medicines.html">View evidence and rules</a></li>`).join('')}</ul>`;
+      return;
+    }
+    if (payload.intent === 'schedule_info') {
+      result.innerHTML = `<div class="notice info"><strong>${escapeHtml(payload.message)}</strong><br>${modeBadge(payload)}</div><ul class="list">${(payload.entries || []).map(entry => `<li><strong>${escapeHtml(formatDate(entry.effective_from))} · ${entry.milkings_per_day}× per day</strong><p>${escapeHtml(entry.note || '')}</p>${badge(entry.effective_from > payload.today ? 'Upcoming' : 'Effective from this date')}</li>`).join('')}</ul><a class="btn secondary" href="/schedule.html">Open milking schedule</a>`;
+      return;
+    }
+    if (payload.intent === 'workflow_help') {
+      result.innerHTML = `<div class="notice info"><strong>${escapeHtml(payload.message)}</strong><br>${modeBadge(payload)}</div><div class="cow-grid">${(payload.steps || []).map(step => `<article class="cow-card"><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.text)}</p><a class="btn secondary small" href="${escapeHtml(step.href)}">${escapeHtml(step.label)}</a></article>`).join('')}</div>`;
+      return;
+    }
     return renderVatAnswer(payload);
   }
 
@@ -172,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setBusy(button, true, 'Checking…');
     showNotice('#assistant-notice', '');
     try {
-      const payload = await requestJson('/api/assistant/query', jsonOptions('POST', { question }));
+      const payload = await requestJson('/api/assistant/query', jsonOptions('POST', { question, use_ai: document.getElementById('use-ai').checked }));
       renderAnswer(payload);
       if (payload.notice) showNotice('#assistant-notice', payload.notice, 'info');
 
@@ -208,4 +222,11 @@ document.addEventListener('DOMContentLoaded', () => {
     event.preventDefault();
     ask(questionField.value.trim());
   });
+
+  requestJson('/api/assistant/status').then(status => {
+    const checkbox = document.getElementById('use-ai');
+    checkbox.disabled = !status.external_ai_available;
+    document.getElementById('assistant-status').textContent = status.external_ai_available ? `External AI available: ${status.provider}. Select it below when you want to use it.` : 'Local assistant is ready. External AI needs a server API key.';
+    document.getElementById('ai-option-label').textContent = status.external_ai_available ? `Use ${status.provider} to understand this question` : 'External AI is not configured; local queries still work';
+  }).catch(error => { document.getElementById('assistant-status').textContent = error.message; });
 });

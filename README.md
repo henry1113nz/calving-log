@@ -54,7 +54,7 @@ default database receives the v5 ACVM reference import for the first time, the a
 transaction. Temporary/test databases do not create that backup file.
 
 ```bash
-npm test           # API tests against a temporary database
+npm test           # isolated API tests plus mocked AI/calculator unit tests
 npm run verify-db  # prove the database enforces its constraints
 npm run backup-db  # create and integrity-check an online SQLite backup
 ```
@@ -69,8 +69,8 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 - Backend: Node.js + Express
 - Database: SQLite via better-sqlite3, with versioned migrations
 - Frontend: HTML / CSS / JavaScript, no build step
-- Language helper: constrained local intent matching; the server resolves every entity and
-  performs every calculation
+- Language helper: local English/Chinese intent matching, with optional opt-in DeepSeek or
+  OpenAI classification; the server resolves every entity and performs every calculation
 
 ## Project layout
 
@@ -82,12 +82,16 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 | `migrate.js` | versioned schema migrations |
 | `seed.js` | initial reference and demonstration data |
 | `acvmReferenceData.js` | versioned, auditable import of verified ACVM label data |
+| `acvmAdditionalReferenceData.js`, `acvmOctoberReferenceData.js` | idempotent packages of additional matching Approved Labels |
 | `withdrawalCalculator.js` | withholding period calculation (pure logic) |
 | `dryOffAdvisor.js` | dry-off treatment selection criteria (pure logic) |
 | `verify-db.js` | database constraint verification |
 | `test-api.js` | API endpoint tests |
-| `assistant.js` | constrained local intent matching; never performs the safety calculation, and never supplies a cow, date or medicine |
-| `public/*.html` | login, dashboard, events, reviews, herd, dry-off, medicines, medicine editor, assistant, feedback and account pages |
+| `test-assistant.js` | mocked provider, privacy, fallback and schedule-transition regression tests |
+| `test-reference-data.js` | repeat-import, conflict rollback and clinical-history preservation tests |
+| `test-static-pages.js` | frontend syntax, element ID and local asset/link checks (not browser QA) |
+| `assistant.js` | local and optional external intent classification; never performs the safety calculation or supplies entities |
+| `public/*.html` | login, dashboard, events, reviews, herd, individual cow history, dry-off, medicines, medicine editor, milking plan, assistant, feedback and account pages |
 | `public/assets/` | shared responsive styles and page-specific browser logic |
 | `docs/schema.md` | database design and rationale |
 | `docs/deployment.md` | production configuration, backup and restore drill |
@@ -97,7 +101,7 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 
 In development — COMPX576 project, University of Waikato.
 
-The application is at schema version 9. Eight current products in the active reference
+The application is at schema version 9. Eleven current products in the active reference
 set have been checked against their current MPI ACVM Approved Labels, including the label
 wording, source, revision and rule variants used by the calculator. `Bovaclox DC Xtra`
 (A009020) is deliberately inactive because the current register does not provide a
@@ -108,6 +112,16 @@ The 28 September 2026 reference import adds Albiotic, Mastiplan and Noroclox DC 
 Albiotic and Mastiplan use explicit current-label rules because their OAD and TAD milk
 periods differ. Noroclox DC 600 uses the conditional dry-cow branch with its own 35-day
 condition and eight post-calving milkings.
+
+The 4 October 2026 package adds Orbenin Dry Cow (A000888), Orbenin Enduro (A006036),
+and Penclox 1200 (A010884), with matching Approved Label wording, revision, source and
+review date. The two dry-cow products use their own 30-/35-day conditions and a further
+eight milkings; Penclox requires an explicit labelled course and stores both OAD and TAD
+values. A change to faster milking cannot shorten the original regimen duration. The app
+works at conservative whole-date precision, not actual milking timestamps.
+Predicted calving dates are planning estimates only. They remain on the daily hold list even
+after the estimated date expires, enter the review queue, and cannot be manually cleared
+without an authoritative event correction or actual calving record.
 
 The v5 import reviews active legacy events and records every before/after result in the
 correction audit. It does not guess a missing Orbenin regimen: a legacy event is linked to
@@ -123,7 +137,8 @@ cases enter a review queue and remain visible through accountable resolution.
 
 The front end is split into focused, responsive operational pages instead of one crowded
 screen: the daily dashboard, treatment/events entry, accountable reviews, herd records,
-evidence-based dry-off decisions, medicines/reference control, a separate Owner/Vet medicine
+evidence-based dry-off decisions, medicines/reference control, a dedicated dated milking plan,
+individual cow history, a separate Owner/Vet medicine
 editor, a constrained natural-language
 assistant, structured field feedback, and account security. It shows verification and
 attention states, handles an unknown clear date safely, supports regimen selection where
@@ -136,9 +151,15 @@ label revision, exact label wording, HTTPS source, verification date and verifie
 Changing a safety-critical field removes verification and deactivates the product. A product with
 multiple labelled regimens also remains inactive until its structured regimen rules exist.
 
-The natural-language page now covers three constrained intents: today's vat-exclusion list,
-an explanation of one cow's recorded hold read back from the stored event snapshot, and a calving draft that writes nothing until a person
-confirms it through the ordinary event route. The local matcher only classifies the wording; the server
-resolves the cow and the date, asks when either is missing, and refuses to choose a medicine,
-a regimen or a withholding period. No question or farm record is sent to an external service. See
+The editor now lets Owner/Vet users append labelled OAD/TAD courses to the current verified
+revision while the product is inactive. Stored rules cannot be overwritten. Herd profiles
+allow Owner/Vet users to mark a cow culled without deleting her clinical history.
+
+The natural-language page covers six constrained intents: today's vat list, one cow's recorded
+hold, a calving draft, medicine label lookup, milking-plan lookup, and page/role help. A draft
+writes nothing until confirmed through the ordinary event route. Without a provider key,
+everything remains local. With a key and explicit opt-in, only the typed question is sent for
+intent classification; no database records or label documents are uploaded. Invalid output or
+provider failure falls back locally. A model cannot choose a medicine, regimen or withholding
+period. See
 [docs/language-interface.md](docs/language-interface.md).

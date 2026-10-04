@@ -6,6 +6,7 @@
     { id: 'herd', href: '/herd.html', label: 'Herd', icon: '♧' },
     { id: 'dry-off', href: '/dry-off.html', label: 'Dry-off', icon: '◎' },
     { id: 'medicines', href: '/medicines.html', label: 'Medicines', icon: '◇' },
+    { id: 'schedule', href: '/schedule.html', label: 'Milking plan', icon: '◷' },
     { id: 'assistant', href: '/assistant.html', label: 'Ask', icon: '?' },
     { id: 'feedback', href: '/feedback.html', label: 'Feedback', icon: '✎' },
     { id: 'account', href: '/account.html', label: 'Account', icon: '○' }

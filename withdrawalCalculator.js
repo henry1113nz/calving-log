@@ -184,14 +184,17 @@ function calculateWithdrawal(input) {
       milkingSchedule,
       regimenFrequency
     );
+    // A move from OAD to TAD must not shorten the labelled elapsed-time period.
+    // The label count also implies a minimum duration at its original frequency.
+    const regimenDays = Math.max(regimenConversion.days, Math.ceil(milkings / regimenFrequency));
     return {
       status: STATUS.CALCULATED,
-      days_applied: regimenConversion.days,
-      end_date: addDays(input.event_date, regimenConversion.days),
+      days_applied: regimenDays,
+      end_date: addDays(input.event_date, regimenDays),
       message:
         `${rule.rule_name}: ${milkings} milkings using ` +
         `${frequencyDescription(regimenConversion.frequencies)}, ` +
-        'counted from the last treatment date.'
+        'counted from the last treatment date; the original label duration is also retained.'
     };
   }
 

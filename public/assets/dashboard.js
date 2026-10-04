@@ -51,7 +51,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="list-main">
           <p class="list-title">Cow ${escapeHtml(row.tag_number)} · ${escapeHtml(humanize(row.event_type))}</p>
           <div class="list-meta"><span>${escapeHtml(formatDate(row.event_date, { short: true }))}</span>${row.drug_name ? `<span>${escapeHtml(row.drug_name)}</span>` : ''}</div>
-          ${row.withdrawal_end_date ? `<p class="list-detail">Hold through ${escapeHtml(formatDate(row.withdrawal_end_date, { short: true }))}; earliest eligible ${escapeHtml(formatDate(dayAfter(row.withdrawal_end_date), { short: true }))} if no other hold applies.</p>` : ''}
+          ${row.withdrawal_end_date ? `<p class="list-detail">${row.calving_date_source === 'predicted'
+            ? `Planning estimate ${escapeHtml(formatDate(row.withdrawal_end_date, { short: true }))}; actual calving is required before release.`
+            : `Hold through ${escapeHtml(formatDate(row.withdrawal_end_date, { short: true }))}; earliest eligible ${escapeHtml(formatDate(dayAfter(row.withdrawal_end_date), { short: true }))} if no other hold applies.`}</p>` : ''}
         </div>
       </li>`).join('')}</ul>`;
   }
@@ -66,12 +68,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     ]);
 
     const needsReview = vat.filter(row => row.requires_attention || !row.withdrawal_end_date).length;
+    const cowHoldCount = new Set(vat.map(row => row.tag_number)).size;
     const activeHerd = cows.filter(cow => cow.status !== 'culled').length;
     const currentEntry = schedule.entries.find(entry => entry.effective_from <= schedule.today);
 
-    document.getElementById('hero-hold-count').textContent = vat.length;
-    document.getElementById('hero-title').textContent = vat.length
-      ? `${vat.length} cow${vat.length === 1 ? '' : 's'} must stay out of the vat.`
+    document.getElementById('hero-hold-count').textContent = cowHoldCount;
+    document.getElementById('hero-title').textContent = cowHoldCount
+      ? `${cowHoldCount} cow${cowHoldCount === 1 ? '' : 's'} must stay out of the vat.`
       : 'The vat list is clear today.';
     document.getElementById('hero-copy').textContent = needsReview
       ? `${needsReview} record${needsReview === 1 ? ' needs' : 's need'} a person to confirm the clear date before milk can be accepted.`

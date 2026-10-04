@@ -174,8 +174,8 @@ async function run() {
 
   const drugResponse = await call('GET', '/api/drugs');
   const drugs = drugResponse.body;
-  assert('GET /api/drugs exposes the eight active, verified references',
-    drugResponse.status === 200 && Array.isArray(drugs) && drugs.length === 8
+  assert('GET /api/drugs exposes the eleven active, verified references',
+    drugResponse.status === 200 && Array.isArray(drugs) && drugs.length === 11
       && drugs.every(d => d.is_active === 1 && d.is_verified === true),
     JSON.stringify(drugs));
   assert('GET /api/drugs always exposes a rules array',
@@ -190,13 +190,16 @@ async function run() {
   const albiotic = drugs.find(d => d.drug_name === 'Albiotic');
   const mastiplan = drugs.find(d => d.drug_name === 'Mastiplan');
   const noroclox = drugs.find(d => d.drug_name === 'Noroclox DC 600');
+  const orbeninDry = drugs.find(d => d.drug_name === 'Orbenin Dry Cow');
+  const orbeninEnduro = drugs.find(d => d.drug_name === 'Orbenin Enduro');
+  const penclox = drugs.find(d => d.drug_name === 'Penclox 1200');
   const lactatingDrug = mastalone;
   const lactatingRule = lactatingDrug;
   const dryCowRule = dryCowDrug;
 
-  assert('the eight expected active products are present',
+  assert('the expected active products are present',
     [mastalone, penethaject, orbenin, dryCowDrug, teatSeal,
-      albiotic, mastiplan, noroclox].every(Boolean),
+      albiotic, mastiplan, noroclox, orbeninDry, orbeninEnduro, penclox].every(Boolean),
     JSON.stringify(drugs.map(d => d.drug_name)));
 
   res = await call('POST', '/api/events', {
@@ -543,10 +546,29 @@ async function run() {
     res.body.every(r => !r.warnings.some(w => /not been verified/i.test(w))),
     JSON.stringify(res.body));
 
+  const estimateCow = (await call('POST', '/api/cows', { tag_number: '812' })).body;
+  const expiredEstimate = (await call('POST', '/api/events', {
+    cow_id: estimateCow.id, event_type: 'dry_off', event_date: '2026-01-01',
+    calving_date: '2026-03-01', calving_date_source: 'predicted', drug_id: dryCowDrug.id
+  })).body;
+  res = await call('GET', '/api/vat-exclusions');
+  const estimatedHold = res.body.find(row => row.id === expiredEstimate.id);
+  assert('an expired predicted clear date remains a hold without an eligible date',
+    estimatedHold?.requires_attention && estimatedHold.is_estimate && estimatedHold.eligible_from_date === null,
+    JSON.stringify(estimatedHold));
+  res = await call('POST', '/api/assistant/query', { question: 'Why is cow 812 on hold?' });
+  assert('the assistant agrees that an expired estimate needs actual calving',
+    res.body.requires_attention && res.body.on_hold_today && res.body.events[0].eligible_from_date === null,
+    JSON.stringify(res.body));
+  const estimateReview = (await call('GET', '/api/reviews?status=open')).body.find(row => row.health_event_id === expiredEstimate.id);
+  assert('a directly entered estimate opens an accountable review', Boolean(estimateReview));
+  res = await call('POST', `/api/reviews/${estimateReview.id}/resolve`, { resolution: 'Attempt to clear with an estimated date' });
+  assert('a predicted date cannot be released by manually closing its review', res.status === 409);
+
   // ------------------------------------------------------ read-only assistant
   heading('Constrained natural-language assistant');
 
-  const directVatRows = res.body;
+  const directVatRows = (await call('GET', '/api/vat-exclusions')).body;
   res = await call('POST', '/api/assistant/query', {
     question: 'Which cows must stay out of the vat today?'
   });
@@ -560,6 +582,9 @@ async function run() {
   assert('the assistant exposes that the local constrained matcher was used',
     res.body.assistant_mode === 'local' && res.body.notice === null,
     JSON.stringify(res.body));
+  assert('the daily summary counts cows separately from their multiple hold records',
+    res.body.cow_count === new Set(res.body.rows.map(row => row.tag_number)).size,
+    JSON.stringify({ cows: res.body.cow_count, records: res.body.count }));
 
   res = await call('POST', '/api/assistant/query', {
     question: '今天哪些牛的奶不能进奶罐？'
@@ -617,6 +642,34 @@ async function run() {
     res.body.explanation_basis === 'stored_event_snapshot'
       && res.body.source === 'deterministic_database_query',
     JSON.stringify(res.body));
+
+  for (let index = 0; index < 11; index += 1) {
+    await call('POST', '/api/events', {
+      cow_id: assistantCow.id, event_type: 'treatment', event_date: '2026-08-20',
+      notes: 'A later, non-drug record must not hide the old unresolved hold.'
+    });
+  }
+  res = await call('POST', '/api/assistant/query', { question: 'Why is cow 811 on hold?' });
+  assert('an unresolved hold older than the ten newest records is still reported',
+    res.body.requires_attention && res.body.events.some(event => event.id === assistantDryOff.id),
+    JSON.stringify(res.body));
+
+  res = await call('GET', '/api/assistant/status');
+  assert('assistant configuration reveals capabilities but no API key or endpoint',
+    res.status === 200 && res.body.supported_intents.length === 6
+      && !Object.hasOwn(res.body, 'key') && !Object.hasOwn(res.body, 'endpoint'), JSON.stringify(res.body));
+  res = await call('POST', '/api/assistant/query', { question: 'Show Penclox 1200 label', use_ai: true });
+  assert('an unavailable external AI falls back to the stored medicine answer',
+    res.status === 200 && res.body.assistant_mode === 'local' && Boolean(res.body.notice)
+      && res.body.medicines.length === 1 && res.body.medicines[0].id === penclox.id, JSON.stringify(res.body));
+  res = await call('POST', '/api/assistant/query', { question: 'OAD和TAD什么意思' });
+  assert('schedule assistance reads the same dated schedule as the schedule API',
+    res.body.intent === 'schedule_info' && res.body.entries.length === (await call('GET', '/api/milking-schedule')).body.entries.length,
+    JSON.stringify(res.body));
+  res = await call('POST', '/api/assistant/query', { question: 'How do I add medicine?' });
+  assert('workflow help gives page links and explains the signed-in role',
+    res.body.intent === 'workflow_help' && res.body.steps.some(step => step.href === '/medicines.html')
+      && /owner/i.test(res.body.message), JSON.stringify(res.body));
 
   const eventsBeforeDraft = (await call('GET', '/api/events')).body.length;
   res = await call('POST', '/api/assistant/query', { question: 'Cow 811 calved today' });
@@ -676,10 +729,10 @@ async function run() {
 
   res = await call('GET', '/api/drugs/reference-status');
   const referenceStatus = res.body;
-  assert('reference-status reports eight verified active drugs and one inactive drug',
+  assert('reference-status reports eleven verified active drugs and one inactive drug',
     res.status === 200
-      && referenceStatus.active_count === 8
-      && referenceStatus.verified_active_count === 8
+      && referenceStatus.active_count === 11
+      && referenceStatus.verified_active_count === 11
       && referenceStatus.unverified_active_count === 0
       && referenceStatus.inactive_count === 1,
     JSON.stringify(referenceStatus));
@@ -749,6 +802,44 @@ async function run() {
       && noroclox.milk_withdrawal_unit === 'milkings'
       && noroclox.meat_withdrawal_days === 28,
     JSON.stringify(noroclox));
+
+  assert('Orbenin Dry Cow retains current ACVM evidence and its 30-day condition',
+    orbeninDry.acvm_registration_no === 'A000888' && orbeninDry.minimum_dry_period_days === 30
+      && orbeninDry.meat_withdrawal_days === 28 && /Mar 2026/.test(orbeninDry.label_revision),
+    JSON.stringify(orbeninDry));
+  assert('Orbenin Enduro retains the September 2026 label and its 35-day condition',
+    orbeninEnduro.acvm_registration_no === 'A006036' && orbeninEnduro.minimum_dry_period_days === 35
+      && orbeninEnduro.meat_withdrawal_days === 28 && /Sept 2026/.test(orbeninEnduro.label_revision),
+    JSON.stringify(orbeninEnduro));
+  assert('Penclox has one labelled 3-to-6 course rule with OAD 5 and TAD 9 milkings',
+    penclox.acvm_registration_no === 'A010884' && penclox.meat_withdrawal_days === 10
+      && penclox.rules.length === 1 && penclox.rules[0].milkings_once_daily === 5
+      && penclox.rules[0].milkings_twice_daily === 9, JSON.stringify(penclox));
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-09-10', drug_id: penclox.id
+  });
+  assert('Penclox cannot calculate without a matching course rule', res.status === 400);
+  for (const frequency of [1, 2, 3]) {
+    res = await call('POST', '/api/events', {
+      cow_id: newCowId, event_type: 'treatment', event_date: '2026-09-10',
+      drug_id: penclox.id, drug_rule_id: penclox.rules[0].id, milkings_per_day: frequency
+    });
+    assert(`Penclox ${frequency}/day ${frequency === 3 ? 'requires vet review' : 'retains the labelled elapsed period'}`,
+      res.status === 201 && (frequency === 3
+        ? res.body.withdrawal_status === 'requires_vet_advice' && res.body.withdrawal_end_date === null
+        : res.body.withdrawal_end_date === '2026-09-15'), JSON.stringify(res.body));
+  }
+  for (const [product, earlyEnd] of [[orbeninDry, '2026-09-23'], [orbeninEnduro, '2026-09-28']]) {
+    for (const early of [true, false]) {
+      res = await call('POST', '/api/events', {
+        cow_id: newCowId, event_type: 'dry_off', event_date: '2026-08-20',
+        calving_date: early ? '2026-09-01' : '2026-10-01', calving_date_source: 'actual',
+        drug_id: product.id, milkings_per_day: 2
+      });
+      assert(`${product.drug_name} ${early ? 'early' : 'normal'} calving requires both label conditions`,
+        res.status === 201 && res.body.withdrawal_end_date === (early ? earlyEnd : '2026-10-05'), JSON.stringify(res.body));
+    }
+  }
 
   res = await call('POST', '/api/events', {
     cow_id: newCowId, event_type: 'treatment', event_date: '2026-09-10',
@@ -876,6 +967,43 @@ async function run() {
   });
   assert('a new regimen-based medicine cannot activate before its rules exist',
     res.status === 400 && /labelled rules|regimen rules/i.test(res.body.error), JSON.stringify(res.body));
+
+  res = await call('POST', '/api/drugs', {
+    drug_name: 'Structured Rule Test', milk_withdrawal_value: 6, milk_withdrawal_unit: 'milkings',
+    calculation_basis: 'treatment_date', requires_regimen: true, is_active: false,
+    acvm_registration_no: 'A-TEST-RULES', label_revision: 'A-TEST-RULES-1',
+    label_wording: 'Test only: three OAD or six TAD milkings after the last treatment.',
+    source_reference: 'https://example.govt.nz/test-only', verified_on: '2026-10-04', verified_by: 'API test'
+  });
+  const structuredDrugId = res.body.id;
+  assert('a regimen medicine can be staged with complete evidence but inactive',
+    res.status === 201 && !res.body.is_active && Number.isInteger(res.body.current_reference_revision_id), JSON.stringify(res.body));
+  res = await call('PUT', `/api/drugs/${structuredDrugId}`, { is_active: true });
+  assert('a staged regimen medicine still cannot activate without rules', res.status === 400);
+  const rulePayload = { rule_name: 'Label course', description: 'Test only course evidence', milkings_once_daily: 3, milkings_twice_daily: 6 };
+  for (const invalid of [null, -1, 1.5, 501]) {
+    res = await call('POST', `/api/drugs/${structuredDrugId}/rules`, {
+      ...rulePayload, milkings_once_daily: invalid, milkings_twice_daily: null
+    });
+    assert(`rule creation rejects invalid counts (${invalid})`, res.status === 400, JSON.stringify(res.body));
+  }
+  res = await call('POST', `/api/drugs/${structuredDrugId}/rules`, rulePayload);
+  const structuredRuleId = res.body.id;
+  assert('the owner can append a rule bound to the current verified revision',
+    res.status === 201 && res.body.drug_id === structuredDrugId && res.body.milkings_twice_daily === 6, JSON.stringify(res.body));
+  res = await call('POST', `/api/drugs/${structuredDrugId}/rules`, rulePayload);
+  assert('duplicate rules cannot be silently appended to the same revision', res.status === 409);
+  res = await call('PUT', `/api/drugs/${structuredDrugId}`, { is_active: true });
+  assert('the staged medicine can activate after its labelled rule is recorded', res.status === 200 && res.body.is_active === 1);
+  res = await call('POST', `/api/drugs/${structuredDrugId}/rules`, { ...rulePayload, rule_name: 'Changed course' });
+  assert('rules cannot be added while a medicine is active', res.status === 409);
+  res = await call('POST', '/api/events', {
+    cow_id: newCowId, event_type: 'treatment', event_date: '2026-09-10',
+    drug_id: structuredDrugId, drug_rule_id: structuredRuleId, milkings_per_day: 2
+  });
+  assert('an editor-created rule is usable through the normal event path',
+    res.status === 201 && res.body.withdrawal_end_date === '2026-09-13'
+      && res.body.drug_rule_id === structuredRuleId, JSON.stringify(res.body));
 
   // ------------------------------------------------------------------- SCC
   heading('SCC records');
@@ -1039,6 +1167,11 @@ async function run() {
   });
   assert('a milker cannot add a medicine reference', res.status === 403);
 
+  res = await call('POST', `/api/drugs/${structuredDrugId}/rules`, rulePayload);
+  assert('a milker cannot append a medicine rule', res.status === 403);
+  res = await call('PUT', `/api/cows/${newCowId}`, { status: 'culled' });
+  assert('a milker cannot archive or alter an existing cow', res.status === 403);
+
   res = await call('POST', '/api/feedback', {
     area: 'overall', task_code: 'overall_walkthrough', completion_status: 'completed',
     ease_rating: 4, suggestion: 'The larger type was easier to read.'
@@ -1058,7 +1191,10 @@ const server = spawn(process.execPath, ['server.js'], {
   env: {
     ...process.env,
     CALVING_LOG_DB: TEST_DB,
-    PORT: String(PORT)
+    PORT: String(PORT),
+    NODE_ENV: 'test',
+    DEEPSEEK_API_KEY: '',
+    OPENAI_API_KEY: ''
   },
   stdio: ['ignore', 'ignore', 'pipe']
 });

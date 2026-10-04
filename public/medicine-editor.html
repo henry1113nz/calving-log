@@ -33,9 +33,9 @@
               <div class="field"><label for="meat_withdrawal_days">Meat withholding days</label><input id="meat_withdrawal_days" type="number" min="0" step="1"></div>
               <div class="field"><label for="calculation_basis">Count from</label><select id="calculation_basis"><option value="treatment_date">Last treatment date</option><option value="calving_date">Calving date</option></select></div>
               <div class="field"><label for="minimum_dry_period_days">Minimum dry period days</label><input id="minimum_dry_period_days" type="number" min="0" step="1"><span class="hint">Only applies when the rule counts from calving.</span></div>
-              <div class="field check-field"><label><input id="whp_depends_on_dose" type="checkbox"> Withholding period depends on dose</label><label><input id="requires_regimen" type="checkbox"> Multiple labelled regimens must be selected</label></div>
+              <div class="field check-field"><label><input id="whp_depends_on_dose" type="checkbox"> Withholding period depends on dose</label><label><input id="requires_regimen" type="checkbox"> Label has frequency or treatment-course rules</label></div>
             </div>
-            <div id="regimen-notice" class="notice info" hidden>A regimen-based medicine can be saved here, but it remains inactive until its labelled regimen rules have been entered and checked.</div>
+            <div id="regimen-notice" class="notice info" hidden>Save inactive with complete evidence first. The structured rule editor below accepts last-treatment-date products measured in milkings. Record each labelled OAD/TAD course before activation; unsupported or combination-treatment rules require veterinary review.</div>
 
             <div class="card-head section-head"><div><h2 class="card-title">Verification evidence</h2><p class="card-subtitle">Copy the wording from the matching official label and keep the source link.</p></div></div>
             <div class="form-grid">
@@ -51,6 +51,20 @@
             <div class="form-actions"><button class="btn" id="medicine-submit" type="submit">Save medicine</button><a class="btn secondary" href="/medicines.html">Cancel</a></div>
           </form>
           <div id="medicine-notice" style="margin-top:14px" hidden></div>
+        </section>
+        <section class="card" id="rule-editor" hidden>
+          <div class="card-head"><div><h2 class="card-title">Labelled OAD / TAD rules</h2><p class="card-subtitle">Save the medicine inactive with complete evidence first. Add each actual course, then activate the medicine. Existing rules are retained; a changed label needs a new revision.</p></div></div>
+          <div id="stored-rules"></div>
+          <form id="rule-form">
+            <div class="form-grid">
+              <div class="field"><label for="rule_name">Course / rule name</label><input id="rule_name" maxlength="160" required placeholder="e.g. Three treatments 24 hours apart"></div>
+              <div class="field"><label for="rule_description">Label course description</label><input id="rule_description" maxlength="2000" required></div>
+              <div class="field"><label for="rule_oad">OAD milkings after last treatment</label><input id="rule_oad" type="number" min="0" max="500" step="1"><span class="hint">Leave blank if the label does not cover OAD.</span></div>
+              <div class="field"><label for="rule_tad">TAD milkings after last treatment</label><input id="rule_tad" type="number" min="0" max="500" step="1"><span class="hint">Leave blank if the label does not cover TAD.</span></div>
+            </div>
+            <div class="form-actions"><button class="btn" type="submit" id="rule-submit">Add label rule</button></div>
+          </form>
+          <div id="rule-notice" hidden></div>
         </section>
       </main>
     </div>

@@ -14,24 +14,28 @@
         <div>
           <p class="eyebrow">Read-only assistant</p>
           <h1 class="page-title">Ask CalvingLog</h1>
-          <p class="page-subtitle">Ask about today's vat list or one cow in everyday language, or say what happened and confirm the draft. The database and deterministic calculator remain authoritative.</p>
+          <p class="page-subtitle">Ask about cows, medicine labels, milking changes or how to use the system. English and Chinese questions are supported.</p>
         </div>
       </header>
       <main class="page-content stack">
         <p class="notice warning"><strong>Safety boundary:</strong> The assistant cannot calculate a withholding period, choose a medicine or regimen, approve milk release, or save anything without your confirmation.</p>
         <div class="grid grid-2">
           <section class="card">
-            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle">Supported: today's vat list, one cow's recorded hold, and a calving you want recorded.</p></div></div>
+            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle" id="assistant-status">Checking assistant availability…</p></div></div>
             <form id="assistant-form">
               <div class="field">
                 <label for="assistant-question">Question or statement</label>
                 <textarea id="assistant-question" maxlength="500" required placeholder="Which cows must stay out of the vat today?"></textarea>
-                <span class="hint">Do not enter personal information. The external model, when configured, receives only this text and never receives farm records.</span>
+                <span class="hint">Do not enter personal details, passwords, farm identifiers or real clinical information. With external AI selected, this typed question is sent to the displayed provider; database records are not uploaded.</span>
               </div>
+              <label class="activation-row"><input id="use-ai" type="checkbox" disabled><span id="ai-option-label">External AI is being checked</span></label>
               <div class="list-meta" id="assistant-examples">
                 <button class="text-button" type="button" data-example="Which cows must stay out of the vat today?">Today's vat list</button>
                 <button class="text-button" type="button" data-example="Why is cow 212 on hold?">Explain one cow</button>
                 <button class="text-button" type="button" data-example="Cow 212 calved today">Record a calving</button>
+                <button class="text-button" type="button" data-example="Show the Albiotic label">Medicine label</button>
+                <button class="text-button" type="button" data-example="Show the OAD and TAD schedule">Milking plan</button>
+                <button class="text-button" type="button" data-example="How do I add medicine?">How to use the pages</button>
               </div>
               <div class="form-actions"><button class="btn" id="assistant-submit" type="submit">Ask</button></div>
             </form>
