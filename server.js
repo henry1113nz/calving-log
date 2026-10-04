@@ -3,6 +3,8 @@ const db = require('./db');
 const { addDays, calculateWithdrawal, toDays } = require('./withdrawalCalculator');
 const { recommendDryOffTreatment } = require('./dryOffAdvisor');
 const { classifyIntent, assistantConfig, aiNotice, testAssistantConnection, createAIRequestLimiter } = require('./assistant');
+const { createAssistantTools } = require('./assistantTools');
+const { createConversationStore, generateChatReply, containsSecret, chatErrorCode, chatNotice } = require('./assistantChat');
 const {
   clearCookieHeader, cookieHeader, createSession, parseCookies, passwordFields,
   requireAuth, requireRole, tokenHash, verifyPassword
@@ -1403,8 +1405,8 @@ function assistantScheduleSnapshot(value) {
 
 // 解释一头牛的状态时,每个字段都是从事件快照里读出来的,没有任何一处重新计算。
 // 重算会让解释和每日清单对不上,而人会相信后看到的那一个。
-function assistantCowStatus(question, today = new Date().toISOString().split('T')[0]) {
-  const reference = assistantCowReference(question);
+function assistantCowStatus(question, today = new Date().toISOString().split('T')[0], knownCow = null) {
+  const reference = knownCow ? { cow: knownCow } : assistantCowReference(question);
   if (!reference.cow) {
     return { supported: true, resolved: false, message: reference.question, questions: [reference.question] };
   }
@@ -1574,6 +1576,10 @@ function assistantVatAnswer() {
 }
 
 const assistantLimiter = createAIRequestLimiter();
+const assistantTools = createAssistantTools({ db, vatExclusions, cowStatus: tag => assistantCowStatus(tag,
+  undefined, db.prepare('SELECT id, tag_number, status FROM cows WHERE tag_number = ?').get(tag)) });
+const assistantConversations = createConversationStore();
+const assistantBusyUsers = new Set();
 let lastConnectionTest = null;
 app.get('/api/assistant/status', (req, res) => {
   const { configured, provider, model, state } = assistantConfig();
@@ -1584,7 +1590,95 @@ app.get('/api/assistant/status', (req, res) => {
     connection_test: lastConnectionTest || { state: 'untested', message: 'No connection test has been run since this server started.' },
     ...(req.user.role === 'owner' ? { limits: assistantLimiter.status() } : {}),
     supported_intents: ['vat_exclusions_today', 'cow_status', 'draft_event', 'medicine_info', 'schedule_info', 'workflow_help'],
-    privacy: 'Only the submitted question is sent to the provider when you opt in. Farm records, passwords and labels are not sent.' });
+    chat_capabilities: ['multilingual_conversation', 'follow_up_questions', 'read_only_database_tools', 'source_links'],
+    privacy: 'Chat sends your question and recent conversation after opt-in. A separate consent allows a demo herd overview and selected record/label results. No full database, credentials, account identities or feedback are uploaded. The legacy record helper sends only its question.' });
+});
+
+function assistantConversationOwner(req) {
+  return `${req.user.id}:${tokenHash(parseCookies(req.headers.cookie || '').calvinglog_session || '')}`;
+}
+
+function localChatAnswer(question, language, role) {
+  const zh = language === 'zh' || language === 'auto' && /[\u4e00-\u9fff]/.test(question);
+  const source = tool => assistantTools.execute(tool, {}, role);
+  let reply; let output;
+  if (/(how many.*cow|herd.*(size|count)|cow.*count|多少.*牛|几头牛|牛群.*数量)/i.test(question)) {
+    output = source('herd_summary');
+    const data = output.data;
+    const n = status => data.by_status.find(row => row.status === status)?.count || 0;
+    reply = zh ? `数据库共记录 ${data.total_including_culled} 头牛（包括保留的淘汰记录）；当前未淘汰 ${data.active} 头，其中泌乳 ${n('lactating')} 头、干奶 ${n('dry')} 头，已淘汰 ${n('culled')} 头。这是当前数据库统计，不代表农场实际牛群数量。`
+      : `The database contains ${data.total_including_culled} cows including retained culled records. ${data.active} are active: ${n('lactating')} lactating, ${n('dry')} dry; ${n('culled')} are culled. These are stored demo records, not a live farm census.`;
+  } else if (/(多少.*药|how many.*(medicin|drug)|medicine.*count)/i.test(question)) {
+    output = source('medicine_library');
+    reply = zh ? `当前数据库有 ${output.data.total} 种启用的药品。标签、出处、核验日期和疗程规则请在 Medicines 页面查看；数量不代表每种药都适用于某头牛。`
+      : `There are ${output.data.total} active medicines in the database. Open Medicines to inspect labels, sources, verification dates and regimen rules; this is not a treatment recommendation.`;
+  } else {
+    const intent = require('./assistant').localIntent(question);
+    if (intent === 'vat_exclusions_today') {
+      output = source('milk_holds');
+      const tags = [...new Set(output.data.rows.map(row => row.tag_number))].join(', ');
+      reply = zh ? `今日停奶清单涉及 ${output.data.cow_count} 头牛；${output.data.unresolved_records} 条记录仍需人工处理。当前页牛号：${tags || '无'}。没有列出的停奶记录，不等于证明奶安全。`
+        : `${output.data.cow_count} cows are listed on hold today; ${output.data.unresolved_records} records remain unresolved. Tags on this page: ${tags || 'none'}. Absence of a listed hold does not certify milk safe.`;
+    } else if (intent === 'cow_status') {
+      const reference = assistantCowReference(question);
+      if (reference.cow) {
+        output = assistantTools.execute('cow_history', { tag: String(reference.cow.tag_number) }, role);
+        reply = zh ? `牛 ${reference.cow.tag_number}：${output.data.on_hold_today ? '当前有停奶或未解决记录，不能据此放行。' : '没有存储的当前用药停奶记录，但不代表奶已证明安全。'} 共 ${output.data.total} 条历史事件。以下是存储的事件信息（没有重新计算）：\n${JSON.stringify(output.data.rows, null, 2)}` : output.data.message;
+      } else reply = zh ? '请提供一头数据库中存在的准确牛号；我不会猜测。' : reference.question;
+    } else if (intent === 'schedule_info') {
+      output = source('milking_plan');
+      reply = zh ? `OAD 是一天挤一次奶，TAD 是一天挤两次。计划作用于整个农场，按生效日期应用。当前记录：${output.data.current ? `${output.data.current.milkings_per_day} 次/天，自 ${output.data.current.effective_from} 生效` : '未知'}。只有 Owner 能修改。`
+        : `OAD means once daily, TAD twice daily. This is the farm-wide effective-dated plan. Current entry: ${output.data.current ? `${output.data.current.milkings_per_day} milkings/day from ${output.data.current.effective_from}` : 'unknown'}. Only Owner may change it.`;
+    } else reply = zh ? '当前是本地查询模式，可以查看牛和药品数量、停奶清单、单牛记录及挤奶计划。自由对话和连续追问需要勾选外部 AI；查数据库还需单独同意分享演示数据。要记录或修改信息，请使用对应页面；这里没有保存任何记录。'
+      : 'This is local lookup mode, not a conversational model. It supports simple counts, holds, cow records and milking plans. Select external AI for free-form conversation, and separately consent to demo-data sharing for database questions. Use the structured pages to record or change anything; chat has saved no records.';
+  }
+  return { reply, mode: 'local', sources: output?.source ? [output.source] : [], read_only: true, data_shared: false, conversation_id: null };
+}
+
+app.post('/api/assistant/chat/clear', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const id = req.body?.conversation_id;
+  if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) return res.status(400).json({ error: 'Invalid conversation ID.' });
+  try { res.json({ cleared: assistantConversations.clear(id, assistantConversationOwner(req)) }); }
+  catch { res.status(409).json({ error: 'Wait for the current reply before clearing the conversation.' }); }
+});
+
+app.post('/api/assistant/chat', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const question = req.body?.question;
+  const language = req.body?.language || 'auto';
+  const id = req.body?.conversation_id || null;
+  if (typeof question !== 'string' || !question.trim() || question.length > 2000
+    || !['auto', 'zh', 'en'].includes(language)
+    || id && (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id))) {
+    return res.status(400).json({ error: 'Enter a question (up to 2000 characters), a valid language and conversation ID.' });
+  }
+  if (containsSecret(question)) return res.status(400).json({ error: chatNotice('sensitive_input', language, question) });
+  if (req.body.use_ai !== true) return res.json(localChatAnswer(question.trim(), language, req.user.role));
+  if (!assistantConfig().configured) return res.json({ ...localChatAnswer(question.trim(), language, req.user.role),
+    notice: chatNotice(assistantConfig().state, language, question), error_code: assistantConfig().state });
+  if (assistantBusyUsers.has(req.user.id)) return res.status(409).json({ error: 'One AI reply is already running for this account. Please wait.' });
+  let conversation;
+  try {
+    conversation = assistantConversations.open(id, assistantConversationOwner(req), req.body.share_data === true);
+  } catch (error) {
+    return res.status(409).json({ error: error.aiCode === 'conversation_not_found'
+      ? 'This conversation expired or belongs to another session. Select New chat and try again.'
+      : 'This conversation is busy or the server chat capacity has been reached. Please try again shortly.' });
+  }
+  assistantBusyUsers.add(req.user.id);
+  try {
+    const answer = await generateChatReply({ question: question.trim(), history: conversation.messages,
+      role: req.user.role, language, shareData: conversation.shareData, tools: assistantTools,
+      takeBudget: () => assistantLimiter.take(req.user.id) });
+    assistantConversations.finish(conversation, question.trim(), answer.reply);
+    res.json({ ...answer, conversation_id: conversation.id });
+  } catch (error) {
+    assistantConversations.finish(conversation);
+    const code = chatErrorCode(error);
+    res.json({ ...localChatAnswer(question.trim(), language, req.user.role), conversation_id: conversation.id,
+      data_shared: Boolean(error.dataShared), error_code: code, notice: chatNotice(code, language, question) });
+  } finally { assistantBusyUsers.delete(req.user.id); }
 });
 
 app.post('/api/assistant/connection-test', requireRole('owner'), async (req, res) => {

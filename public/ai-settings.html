@@ -13,7 +13,7 @@
       <div><p class="eyebrow">Owner setup</p><h1 class="page-title">AI settings</h1><p class="page-subtitle">Check the optional language connection. Local queries and safety calculations work without it.</p></div>
     </header>
     <main class="page-content stack">
-      <p class="notice warning"><strong>Not a milk-release authority.</strong> External AI classifies your wording only. It cannot choose a medicine, calculate a hold or change records. Use demonstration data and agree external processing with your supervisor before a trial.</p>
+      <p class="notice warning"><strong>Not a milk-release authority.</strong> External AI can generate multilingual replies and use validated read-only lookups after separate demo-data consent. It cannot choose a treatment, calculate a new hold or change records. Agree external processing with your supervisor before a trial.</p>
       <section class="card">
         <div class="card-head"><div><h2 class="card-title">Connection status</h2><p class="card-subtitle">Opening this page does not contact the AI provider or spend API credit.</p></div></div>
         <div id="ai-connection-status" role="status" aria-live="polite" class="loading">Checking server configuration…</div>
@@ -31,7 +31,7 @@
             <li>Open the <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer">DeepSeek API platform</a>, sign in and create an API key. A free chat account is not the same as API credit.</li>
             <li>Open Railway, choose the <strong>calving-log</strong> service, then <strong>Variables</strong>. Add the three values below. Never paste the secret into chat, GitHub or this application.</li>
             <li>Apply the variable changes and wait for deployment to succeed. Return here, refresh and select <strong>Test AI connection</strong>.</li>
-            <li>A passed test proves that one request worked. On Ask, explicitly select the provider checkbox; the result badge tells you whether external AI or the local assistant handled that request.</li>
+            <li>A passed basic test proves that one fixed request worked, not the quality of database conversations. On Ask, select external AI and separately consent to selected demo-data results if you want record queries. Check the AI response label and source facts.</li>
           </ol>
           <dl class="medicine-meta"><dt>AI_PROVIDER</dt><dd><code>deepseek</code></dd><dt>AI_MODEL</dt><dd><code>deepseek-flash</code></dd><dt>DEEPSEEK_API_KEY</dt><dd>Your secret key — Railway Variables only</dd></dl>
         </section>
@@ -41,7 +41,8 @@
             <li><code>AI_ENABLED=false</code> in Railway turns external AI off; local Ask still works. Use <code>true</code> to enable it again.</li>
             <li><code>AI_DAILY_REQUEST_LIMIT=200</code> limits requests across all users on this running server. Set <code>0</code> to stop paid requests. Failed requests and connection tests count too.</li>
             <li>Daily counters use UTC and reset on a server restart. This is a request safeguard, <strong>not a guaranteed monetary spending cap</strong>. Check billing in your provider account.</li>
-            <li>Questions are sent only after opt-in. Database rows, medicine labels and passwords are not uploaded. Never type personal, farm-identifying or real clinical details.</li>
+            <li>Chat messages and recent conversation are sent only after AI opt-in. Separate demo-data consent allows a herd overview and selected query/label results. Not the entire database. Tools exclude credentials, staff identities, feedback and free-text clinical notes. Never type personal, farm-identifying or real clinical details.</li>
+            <li>One chat question may need several API calls to retrieve evidence and write a reply. Each upstream attempt counts against the request allowance. New chat clears in-memory context; no chat transcript is saved into the farm database.</li>
             <li>If a key is wrong, credit runs out, a limit is reached, or the provider fails, Ask visibly falls back to local matching. Stored records and safety results stay unchanged.</li>
           </ul>
           <p><a href="/account.html">Back to Account</a> · <a href="https://api-docs.deepseek.com/quick_start/pricing/" target="_blank" rel="noopener noreferrer">Official model pricing</a></p>

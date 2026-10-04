@@ -1,102 +1,124 @@
-# Constrained natural-language interface
+# Conversational assistant and record helper
 
-Natural language is an input convenience, not a source of withholding instructions.
-The existing structured API, verified ACVM reference revision and deterministic calculator
-remain authoritative.
+CalvingLog's main Ask page is now a normal conversational interface, not a fixed intent
+classifier. The model generates multilingual replies and can request validated read-only
+queries to understand demonstration records. English, Chinese and other language replies
+are supported by the model; the UI offers Auto, Chinese and English preferences.
 
-`POST /api/assistant/query` and the `/assistant.html` page implement six read-only or
-draft-only intents. Every answer is produced by the same server-side queries and stored
-snapshots that the rest of the application uses.
+## Two separate workflows
 
-## Implemented use cases
+- `/assistant.html` → `POST /api/assistant/chat`: conversation, recent follow-ups,
+  business/technical explanations, record summaries and comparisons. No farm-record writes.
+- `/record-helper.html` → `POST /api/assistant/query`: the earlier six-intent deterministic
+  lookup/calving-draft workflow. A draft saves only through a person's explicit confirmation
+  to the ordinary event API. Its optional classifier sends the typed question only.
 
-1. **Retrieve records** — “Which cows must stay out of the vat today?” The rows come from the
-   same server-side query as `GET /api/vat-exclusions`, including the cows whose clear date is
-   unknown.
-2. **Explain an existing result** — “Why is cow 212 on hold?” The reply restates what is already
-   stored on the event: the applied rule, the ACVM registration and label revision, the days
-   applied, the milkings-per-day snapshot, the calving date and whether it is predicted or
-   actual. Nothing is recalculated, so the explanation cannot disagree with the daily list.
-3. **Draft a structured record** — “Cow 212 calved today.” The assistant returns a draft and
-   writes nothing. Confirming it sends the draft through the ordinary `POST /api/events` route,
-   so the signed-in user is the actor and the normal validation, review queue, snapshot and audit
-   trail all apply.
-4. **Medicine reference** — “Show Penclox 1200 label.” Current product evidence and OAD/TAD
-   course rules come from the reference database, not model memory.
-5. **Milking plan** — “What does OAD / TAD mean?” The current dated schedule and terminology
-   are returned, with a link to its dedicated page.
-6. **Workflow help** — “How do I add medicine?” The reply gives page links and role restrictions.
+The main chat directs record/edit requests to the existing structured pages. It cannot verify
+medicines, prescribe, calculate a new withholding date, resolve a review or authorise milk release.
+This prevents model-generated dates/entities from becoming operational writes.
 
-## What the local matcher is allowed to do
+## Business understanding and read-only tools
 
-The local matcher classifies the wording into one intent: `vat_exclusions_today`, `cow_status`,
-`draft_event`, `medicine_info`, `schedule_info`, `workflow_help` or `unsupported`.
-That is its entire contribution. Cow status reads all non-deleted history, so ten newer
-harmless records cannot hide an older unresolved hold.
+`assistantTools.js` supplies maintained application knowledge: pages, real role permissions,
+technology, OAD/TAD, dry-off, source verification, inclusive hold dates and missing-information
+semantics. This is explicit context, not training or automatic knowledge of every source file.
+It must be updated if the application's behaviour changes.
 
-Entities are resolved by the server, not by the matcher:
+Each AI turn with demo-data consent receives a fresh aggregate herd overview. Tools can then:
 
-- a cow is matched against the tag numbers that exist in the database, never parsed out of the
-  sentence as a new value; an unknown or ambiguous tag is asked about instead;
-- a date is accepted only as `today`, `yesterday` or `YYYY-MM-DD`, is validated, and is rejected
-  when it is in the future;
-- a medicine, a treatment regimen and a withholding period are never chosen. Treatment wording
-  produces a draft with those fields deliberately blank and a pointer to the Treatments page.
+| Tool | Evidence returned |
+|---|---|
+| herd_summary | Total including culled, active total, status/breed/lactation breakdowns |
+| find_cows | Literal tag/breed search, status filters, paged cow records |
+| cow_history | Exact tag, stored hold status and event/reference/schedule evidence |
+| event_records | Matching totals, event-type counts, product/cow/date filters and paged history |
+| milk_holds | Same current/unresolved exclusions as Dashboard, not an independent release decision |
+| medicine_library | Active/inactive/unverified searches; selected label wording and regimen metadata |
+| milking_plan | Current farm-wide frequency and effective-dated changes |
+| review_queue | Open/resolved counts and source-event status, without reviewer identities |
+| scc_evidence | Numeric tests and recorded historical dry-off decisions, not a new recommendation |
 
-By default, records, labels, dates and questions stay inside the application. The local
-English/Chinese matcher calls no external service.
+Tools use parameterised SQL and exact server-side argument/schema checks. The model cannot
+supply SQL, table names, executable code or an arbitrary network endpoint. All three signed-in
+roles can read these operational fields, matching the ordinary read APIs. Authentication remains
+mandatory. Credentials, sessions, user accounts, feedback, actor identities, clinical notes and
+free-text decision/review reasons are not tools. No role can use chat to bypass mutation permissions.
 
-## Optional external classification
+Each list returns up to twenty rows with total, offset and truncation metadata. Searches can page
+or narrow results. Labels and rule lists have explicit truncation flags. Grouped herd breakdowns
+are limited to thirty rows while aggregate totals remain complete. Tools do not silently replace
+unknown fields with zero. Source links and expandable server facts are returned separately from
+model-generated prose. Dates use the existing application's UTC-day convention.
 
-DeepSeek is the default optional provider; OpenAI is also supported. See
-[deployment.md](deployment.md) for server-side environment variables. An external call
-requires a configured key and explicit opt-in on Ask. Only the fixed classification prompt
-and typed question are sent, never database rows or label documents. The page warns people
-not to type identifying or clinical details; agree this transfer with the supervisor before a trial.
+## Consent and data handling
 
-The provider returns one JSON intent from the allow-list, not prose or extracted entities.
-The server rejects extra keys, unknown intents, malformed JSON, empty content and incomplete
-responses. A model cannot turn a question into a record draft. Invalid output, provider errors
-or the eight-second timeout fall back to local matching with a visible notice. A per-user
-in-memory limiter permits twenty external requests per minute. No key is exposed to the browser.
+AI and database sharing are separate opt-ins, off initially:
 
-Owner-only connection diagnostics live on `/ai-settings.html`, separately from daily Ask.
-`POST /api/assistant/connection-test` requires explicit agreement to one possible paid request;
-it submits a fixed non-clinical help question and validates the expected intent. Status reads
-never probe automatically. A key being present is labelled configured, not connected; the
-last test includes a timestamp and is not an ongoing availability guarantee. The normal query
-and probe share a daily allowance (200 by default, configurable with `AI_DAILY_REQUEST_LIMIT`).
-This limit is in-memory, resets at UTC midnight or restart, and is not a provider monetary cap.
-`AI_ENABLED=false` disables external calls. Budget/rate-limit exhaustion returns visible local
-fallback. HTTP errors are mapped to fixed safe messages without exposing raw provider bodies.
+1. AI enabled, data sharing off: send the current question, recent conversational messages and
+   curated application knowledge. No database tool calls or herd overview are provided.
+2. AI enabled, data sharing on: also send a fresh demo herd overview and selected read-only
+   query/label results. **Not the entire database.**
+3. AI off/unavailable: simple local lookups remain available, clearly labelled not conversational AI.
 
-`test-assistant.js` mocks provider responses to test privacy, opt-in, missing keys, invalid output,
-unsafe draft attempts and timeout fallback without spending API credit. Live upstream success
-still needs a valid key and credit; a configured-key status alone does not prove a successful call.
-`test-assistant-ui.js` checks opt-in, owner control visibility, truthful connection status,
-probe consent and duplicate-query prevention in a DOM stub. It is not visual browser QA.
+The change from the old classifier is material: selected results now leave the application after
+separate consent. Use demonstration data only; agree processing and participant information with
+the supervisor before trials. Removing identity columns is not full anonymisation. User messages,
+cow tags, externally entered label text or other allowed strings could still identify a real farm.
+Do not submit real clinical information, personal details, passwords or keys. A best-effort pasted-
+credential detector rejects obvious secrets before upstream requests; it does not detect all PII.
 
-## Prohibited behaviour
+Recent conversation is held in server memory, tied to the authenticated login session, with up
+to eight message pairs / an eighteen-thousand-character memory budget and thirty-minute inactivity
+expiry. New chat clears it; refresh starts a new chat. A sharing-scope change wipes prior context
+before sending a new turn, preventing earlier database-derived answers from being resent after
+consent withdrawal. A new chat also retires older idle chat memory for that session. Chat memory
+is not saved into SQLite. Failed generations are not appended to model history.
 
-- The matcher must never invent, estimate or override a milk or meat withholding period.
-- It must never select an Orbenin regimen, infer a missing calving date or treat an unresolved
-  review as safe.
-- It must never create an owner/vet-only correction, medicine verification, farm-setting change
-  or final dry-off decision without the signed-in role and normal server validation.
-- It must not use general internet text as a substitute for the versioned ACVM Approved Label.
-- It must not save anything. Only a person confirming a draft writes a record.
+## Provider loop and limits
 
-## Request flow
+The server sends normal chat messages and optional function tools to the configured provider.
+Tool arguments are checked before execution; only whitelisted query results are returned to the
+model for an answer. Recent assistant replies are not authoritative evidence: fresh queries should
+be used for record facts, and the model is instructed to say unknown or ask for clarification.
 
-`user wording → one allowed intent or unsupported → server-side entity resolution
-→ existing authenticated query or a draft for confirmation → deterministic database result`
+A turn permits up to five upstream requests / six tool calls, with a fifteen-second timeout per
+request and a forty-five-second total turn budget. At most one generation per account runs at a
+time. Each actual upstream attempt consumes the shared limiter: twenty per user per minute and
+200 per running server per UTC day by default. The global limit is configurable from 0 to 10000.
+Failure requests and basic connection tests also count. Counters reset on restart; these are
+request safeguards, **not a guaranteed spending cap**. Check provider billing separately.
 
-If a required fact is missing or ambiguous, the reply asks for it rather than choosing a value.
-The matcher output itself is never written as a clear date.
+HTTP errors and invalid/truncated output map to safe notices. Raw provider bodies are not exposed.
+Failure falls back to simple local results with a truthful mode label. If an attempted request
+already sent demo context, the fallback still reports that sharing happened.
 
-## Still future work
+Owner-only AI settings runs the existing fixed help-intent connection probe. It establishes one
+basic API request worked, not the quality of tool conversations. Opening status/settings never
+contacts the provider. No key is returned to the browser or stored in frontend assets.
 
-- Drafting a treatment, dry-off or SCC record, which would require a person to select the
-  medicine and regimen inside the preview before anything could be confirmed.
-- Explaining a dry-off recommendation or a correction history in the same restated form.
-- Any bulk or multi-cow write, which is not planned for the prototype.
+## Reliability and safety limits
+
+This is a language model, not a guarantee against hallucination. Prompt instructions to say unknown,
+ignore injected instructions in labels, ground database facts and avoid prescribing are model-level
+guidance. Hard server guarantees are narrower: bounded read-only queries, validated arguments,
+session isolation, separate consent and no clinical writes from chat. The structured calculator,
+versioned Approved Label, farm procedures and veterinarian remain authoritative.
+
+An expected calving date is planning only; unknown dates remain unresolved. No stored medicine hold
+does not establish residue-free milk. AI can explain stored dates/conditions but cannot approve release.
+There is no web-search tool; current external facts cannot be checked by the assistant.
+
+## Testing and live acceptance
+
+- `test-assistant-chat.js`: mocked multilingual replies/tool loops, privacy, query bounds, SQL
+  injection attempts, uncertainty, rate budgets and conversation isolation/expiry.
+- `test-chat-api.js`: real authenticated HTTP/temporary-SQLite workflow with a mocked provider:
+  follow-ups, consent withdrawal, separate login sessions, Milker reads, safe fallback and no writes.
+- `test-assistant-ui.js`: DOM-stub tests for opt-in, language, context IDs, clearing, escaping,
+  safe source links, fallback labels and duplicate submissions. Not visual browser QA.
+- Existing API/calculator/reference/structural tests still run through `npm run release-check`.
+
+Mock success is not live DeepSeek acceptance. After deployment test: Chinese herd count → follow-up
+dry-cow list → English translation → product-label comparison → unknown tag → write request (no
+write) → sharing off/new chat. Compare server source facts with the ordinary pages. Ask unrelated
+non-clinical/general questions to check it no longer returns a fixed unsupported-question template.

@@ -89,6 +89,8 @@ async function run() {
   assert('protected APIs reject an unauthenticated request', res.status === 401);
   res = await call('POST', '/api/assistant/connection-test', { consent: true });
   assert('AI connection tests require a signed-in owner', res.status === 401);
+  res = await call('POST', '/api/assistant/chat', { question: 'How many cows?' });
+  assert('conversational chat requires authentication', res.status === 401);
 
   const malformed = await fetch(BASE + '/api/auth/login', {
     method: 'POST',
@@ -663,6 +665,34 @@ async function run() {
   assert('configured-key status does not falsely claim a verified live connection',
     res.body.configuration_state === 'missing_key' && res.body.connection_test.state === 'untested'
       && res.body.can_test_connection && res.body.limits.daily_requests === 200, JSON.stringify(res.body));
+  assert('status advertises conversational capability and separate data consent',
+    res.body.chat_capabilities.includes('follow_up_questions') && /separate consent/i.test(res.body.privacy));
+  const chatEventsBefore = (await call('GET', '/api/events')).body.length;
+  const chatHerd = (await call('GET', '/api/cows')).body;
+  res = await call('POST', '/api/assistant/chat', { question: '帮我看看现在有多少头牛，中文回答我', language: 'zh' });
+  assert('Chinese herd count works locally and is grounded in current database counts',
+    res.status === 200 && res.body.mode === 'local' && res.body.reply.includes(`${chatHerd.length} 头牛`)
+      && res.body.sources[0].facts.total_including_culled === chatHerd.length, JSON.stringify(res.body));
+  assert('local chat never uploads database data or creates AI history',
+    res.body.data_shared === false && res.body.conversation_id === null && res.body.read_only === true);
+  res = await call('POST', '/api/assistant/chat', { question: '有多少头牛', language: 'en' });
+  assert('explicit English reply preference is honoured by local count fallback',
+    res.body.reply.startsWith('The database contains'));
+  res = await call('POST', '/api/assistant/chat', { question: 'How many cows?', use_ai: true, share_data: true });
+  assert('missing-key conversational requests visibly fall back without uploading data',
+    res.status === 200 && res.body.mode === 'local' && res.body.error_code === 'missing_key'
+      && res.body.data_shared === false && Boolean(res.body.notice));
+  res = await call('POST', '/api/assistant/chat', { question: 'password: private-test-only' });
+  assert('chat refuses likely pasted credentials', res.status === 400);
+  res = await call('POST', '/api/assistant/chat', { question: '' });
+  assert('chat validates empty input', res.status === 400);
+  res = await call('POST', '/api/assistant/chat', { question: 'a'.repeat(2001) });
+  assert('chat bounds message length', res.status === 400);
+  res = await call('POST', '/api/assistant/chat', { question: 'Count', language: 'invalid' });
+  assert('chat validates language preferences', res.status === 400);
+  res = await call('POST', '/api/assistant/chat', { question: 'Count', conversation_id: '../../another-session' });
+  assert('chat rejects malformed conversation references', res.status === 400);
+  assert('chat queries cannot write health records', (await call('GET', '/api/events')).body.length === chatEventsBefore);
   res = await call('POST', '/api/assistant/connection-test', {});
   assert('an owner must explicitly agree before a paid connection probe', res.status === 400);
   const probeEventsBefore = (await call('GET', '/api/events')).body.length;

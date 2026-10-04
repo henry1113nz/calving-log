@@ -25,8 +25,8 @@ marked `Secure` when Express receives the original HTTPS request through the tru
 
 ## Optional external AI
 
-The local Ask assistant works without a paid service. To enable optional DeepSeek wording
-classification, add these to **Railway → calving-log → Variables** and deploy the change:
+Simple local Ask lookups work without a paid service. To enable conversational DeepSeek replies
+and consented demo-data lookups, add these to **Railway → calving-log → Variables** and deploy the change:
 
 ```text
 AI_PROVIDER=deepseek
@@ -51,15 +51,23 @@ a valid expected JSON intent produces a passed test. A configured key alone does
 that it has credit or that the upstream model works. Last-test timestamps are shown; the
 result is a past observation, not a promise of continuing availability.
 
-On Ask, select the provider checkbox and submit a harmless query. An external-mode badge
-confirms successful classification for that particular request. Error notices distinguish
+On Ask, select the provider checkbox. Separately consent to sharing a demo herd overview and
+selected query/label results if asking about database facts. Messages and recent conversation
+are sent in AI mode; operational results are sent only with that separate consent. The AI response
+label confirms generated text for that particular reply, not that the text is guaranteed correct.
+Expand server source facts or open source pages to verify. Error notices distinguish
 rejected keys, insufficient balance, rate limits, model/parameter errors, network failures
 and invalid output. Do not forward raw provider errors or logs, which might contain secrets.
 Use `AI_ENABLED=false` in Railway to switch external calls off immediately after redeploy.
-Only the typed question is sent; warn participants not to type identifying or clinical details.
-Database rows and safety calculations remain server-side. External calls have an eight-second
-timeout and a per-user in-memory limit of twenty requests per minute. `AI_DAILY_REQUEST_LIMIT`
-defaults to 200 combined queries and connection tests across all users on this running server.
+The entire database, credentials, staff identities, feedback and clinical free-text notes are not
+sent by the query tools. Warn participants not to type identifying or real clinical details;
+structured labels can still contain externally entered text and must be demonstration data only.
+Safety calculations remain deterministic and server-side. Chat has a fifteen-second per-call
+timeout and a forty-five-second turn budget, at most five upstream calls and six read-only tool
+calls per turn. Each upstream call (including tool follow-ups) checks the shared allowance.
+The old classifier/probe keeps its eight-second timeout. There is a per-user in-memory limit of
+twenty upstream requests per minute. `AI_DAILY_REQUEST_LIMIT` defaults to 200 combined upstream
+attempts and connection tests across all users on this running server.
 It accepts integers from 0 to 10000; invalid values use the default and 0 blocks external calls.
 Denied budget/rate-limit queries visibly fall back to local matching rather than failing the
 database answer. Attempted calls, including failed probes, consume this request allowance.
@@ -162,7 +170,11 @@ treatments, review items and vat-exclusion list.
 - Failed sign-ins are limited in memory to 10 attempts per username and IP every 15 minutes.
   A distributed deployment would need a shared limiter.
 - The assistant supports six intents: the daily vat list, one cow's recorded hold, a calving
-  draft, medicine references, milking plan, and workflow help. External-service availability never changes the
-  deterministic database result, and the assistant endpoint itself writes nothing.
+  draft, medicine references, milking plan, and workflow help on the legacy record helper.
+  The main Ask page supports normal multilingual conversation and read-only operational queries.
+  Chat context is in-memory, scoped to a login session, limited to eight message pairs, and expires
+  after thirty minutes of inactivity or a restart. Changing sharing consent clears that context.
+  AI has no internet search or unrestricted SQL. Generated wording can be wrong; source facts
+  and structured pages remain necessary. Chat never writes farm records or changes safety results.
 - A multi-farm or multi-instance version should move operational data and sessions to a
   managed relational database.

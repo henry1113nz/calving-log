@@ -8,59 +8,49 @@
   <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body data-page="assistant">
-  <div class="app-shell">
-    <div class="app-main">
-      <header class="page-header">
-        <div>
-          <p class="eyebrow">Read-only assistant</p>
-          <h1 class="page-title">Ask CalvingLog</h1>
-          <p class="page-subtitle">Ask about cows, medicine labels, milking changes or how to use the system. English and Chinese questions are supported.</p>
+  <div class="app-shell"><div class="app-main">
+    <header class="page-header">
+      <div><p class="eyebrow">Your project &amp; demo-data assistant</p><h1 class="page-title">Ask CalvingLog</h1>
+        <p class="page-subtitle">Have a conversation, ask follow-up questions and explore your records. 中文、English and other languages.</p></div>
+      <div class="page-actions"><a class="btn secondary" href="/record-helper.html">Calving record helper</a></div>
+    </header>
+    <main class="page-content stack chat-page">
+      <p class="notice warning"><strong>Read-only, not a milk-release authority.</strong> AI can explain stored evidence, but cannot prescribe, calculate a new clear date, approve milk for the vat or change records. Check source pages and your farm procedure.</p>
+      <section class="card">
+        <div class="card-head"><div><h2 class="card-title">Conversation / 对话</h2><p class="card-subtitle" id="assistant-status" role="status">Checking assistant availability…</p></div>
+          <button class="btn secondary small" type="button" id="chat-clear">New chat / 新对话</button></div>
+        <p id="assistant-settings-link" hidden><a href="/ai-settings.html">AI settings and connection test (Owner)</a></p>
+        <div id="chat-messages" class="chat-messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
+          <div class="chat-welcome"><h3>What would you like to know?</h3><p>Ask in your own words. With AI enabled, you can follow up with “why?”, “compare them” or “explain that more simply”. Missing information should be stated, not guessed.</p></div>
         </div>
-      </header>
-      <main class="page-content stack">
-        <p class="notice warning"><strong>Safety boundary:</strong> The assistant cannot calculate a withholding period, choose a medicine or regimen, approve milk release, or save anything without your confirmation.</p>
-        <div class="grid grid-2">
-          <section class="card">
-            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle" id="assistant-status" role="status">Checking assistant availability…</p></div></div>
-            <p id="assistant-settings-link" hidden><a href="/ai-settings.html">AI settings and connection test (Owner)</a></p>
-            <form id="assistant-form">
-              <div class="field">
-                <label for="assistant-question">Question or statement</label>
-                <textarea id="assistant-question" maxlength="500" required placeholder="Which cows must stay out of the vat today?"></textarea>
-                <span class="hint">Do not enter personal details, passwords, farm identifiers or real clinical information. With external AI selected, this typed question is sent to the displayed provider; database records are not uploaded.</span>
-              </div>
-              <label class="activation-row"><input id="use-ai" type="checkbox" disabled><span id="ai-option-label">External AI is being checked</span></label>
-              <div class="list-meta" id="assistant-examples">
-                <button class="text-button" type="button" data-example="Which cows must stay out of the vat today?">Today's vat list</button>
-                <button class="text-button" type="button" data-example="Why is cow 212 on hold?">Explain one cow</button>
-                <button class="text-button" type="button" data-example="Cow 212 calved today">Record a calving</button>
-                <button class="text-button" type="button" data-example="Show the Albiotic label">Medicine label</button>
-                <button class="text-button" type="button" data-example="Show the OAD and TAD schedule">Milking plan</button>
-                <button class="text-button" type="button" data-example="How do I add medicine?">How to use the pages</button>
-              </div>
-              <div class="form-actions"><button class="btn" id="assistant-submit" type="submit">Ask</button></div>
-            </form>
-            <div id="assistant-notice" role="status" aria-live="polite" style="margin-top:14px" hidden></div>
-          </section>
-          <aside class="card soft">
-            <div class="card-head"><div><h2 class="card-title">How the answer is produced</h2></div></div>
-            <ol class="test-task-list">
-              <li>The assistant classifies the text into one allowed intent. It never supplies a cow, a date, a medicine or a number.</li>
-              <li>The server resolves the cow tag and date against the database, and asks when either is missing or ambiguous.</li>
-              <li>Answers about a hold are read from the stored event snapshot, including the label revision and milking schedule that produced it.</li>
-              <li>A stated event becomes a draft only. Confirming it saves through the normal treatment route, with the same role checks, validation and audit trail.</li>
-              <li>Unknown clear dates stay on hold and are shown as needing a person.</li>
-            </ol>
-          </aside>
+        <div class="list-meta chat-examples">
+          <button class="text-button" type="button" data-chat-example="帮我看看现在有多少头牛，区分泌乳、干奶和淘汰，用中文回答">牛群数量</button>
+          <button class="text-button" type="button" data-chat-example="Which cows are on hold today, and what information is still missing?">Today's holds</button>
+          <button class="text-button" type="button" data-chat-example="解释一下我网站的技术架构，老师问我应该怎么回答？">Explain my project</button>
+          <button class="text-button" type="button" data-chat-example="Compare the stored labels for Cepravin Dry Cow and Bovaclox DC Xtra. Do not recommend treatment.">Compare label evidence</button>
         </div>
-        <section class="card">
-          <div class="card-head"><div><h2 class="card-title">Answer</h2><p class="card-subtitle">Every result identifies its deterministic database source and assistant mode.</p></div></div>
-          <div id="assistant-result" class="empty-state"><strong>No question asked yet</strong><span>Try “Which cows are on hold today?”, “When can cow 212 go back in the vat?”, or “Cow 212 calved today”.</span></div>
-        </section>
-      </main>
-    </div>
-  </div>
+        <form id="chat-form">
+          <div class="field"><label for="chat-question">Your message / 你的问题</label><textarea id="chat-question" maxlength="2000" required placeholder="Ask naturally… 比如：其中哪些牛在干奶期？"></textarea></div>
+          <div class="chat-controls">
+            <div class="field"><label for="chat-language">Reply language / 回复语言</label><select id="chat-language"><option value="auto">Auto · Follow my language</option><option value="zh">中文</option><option value="en">English</option></select></div>
+            <div class="chat-consents">
+              <label class="activation-row"><input id="chat-use-ai" type="checkbox" disabled><span id="chat-ai-label">Checking external AI…</span></label>
+              <label class="activation-row"><input id="chat-share-data" type="checkbox" disabled><span>I also agree to send a demo herd overview and selected record / label results needed for my question. 同意分享演示数据的汇总与本次查询结果。</span></label>
+            </div>
+          </div>
+          <p class="hint">AI receives your messages and recent conversation. Data sharing is optional and separate. No full database, passwords, staff identities, feedback or API keys are sent by the query tools. Do not type personal, farm-identifying or real clinical details. A lookup question may use several paid API calls.</p>
+          <div class="form-actions"><button class="btn" id="chat-submit" type="submit">Send / 发送</button><span class="hint" id="chat-progress" role="status"></span></div>
+        </form>
+        <div id="chat-notice" role="status" style="margin-top:14px" hidden></div>
+      </section>
+      <details class="card soft"><summary>How this works · 数据、权限和限制</summary>
+        <p>The language model generates normal replies. When you consent to demo-data sharing, the server supplies a fresh herd summary and validates any read-only lookup the model requests. It cannot run arbitrary SQL or write records. Source links and expandable server facts appear below each answer, separate from the AI's wording.</p>
+        <p>Recent conversation is held in server memory for up to 30 minutes of inactivity, not saved into your farm database. New chat clears that conversation; refresh starts a new one. Changing sharing consent resets context so earlier record facts are not sent after you withdraw consent. No web search is connected. General answers and translations may be wrong; verify important claims.</p>
+        <p>Without external AI, simple local lookups still work, but free-form conversation and follow-ups do not. To confirm a calving draft, use the <a href="/record-helper.html">record helper</a>; to record treatment, use <a href="/events.html">Treatments</a>.</p>
+      </details>
+    </main>
+  </div></div>
   <script src="/assets/app.js"></script>
-  <script src="/assets/assistant.js"></script>
+  <script src="/assets/chat.js"></script>
 </body>
 </html>
