@@ -32,6 +32,8 @@ classification, add these to **Railway → calving-log → Variables** and deplo
 AI_PROVIDER=deepseek
 AI_MODEL=deepseek-flash
 DEEPSEEK_API_KEY=<your own secret key>
+AI_ENABLED=true
+AI_DAILY_REQUEST_LIMIT=200
 ```
 
 Create a key in the [DeepSeek API platform](https://platform.deepseek.com/). Model names and
@@ -40,15 +42,34 @@ Do not put the key in browser JavaScript, GitHub, screenshots or chat. Never ent
 placeholder as a real key. OpenAI is also supported with `AI_PROVIDER=openai`,
 `AI_MODEL=gpt-4.1-mini`, and `OPENAI_API_KEY`; only the selected provider is contacted.
 
-After deployment, Ask should show the configured provider and enable its opt-in checkbox.
-`GET /api/assistant/status` reveals availability, not the key. Test one harmless question
-with opt-in; an external-mode badge confirms successful classification. A missing key,
-timeout, provider error or invalid output uses the local answer and shows a fallback notice.
-A configured key alone does not prove that it has credit or that the upstream model works.
+After deployment, sign in as Owner and open **Account → AI settings**, or use the settings
+link on Ask. The page distinguishes configuration from a passed connection test. Reading
+`GET /api/assistant/status` does not contact the provider or spend credit and never reveals
+the key. Agree to the one-request charge and select **Test AI connection**: the owner-only
+`POST /api/assistant/connection-test` sends a fixed help question, never clinical data. Only
+a valid expected JSON intent produces a passed test. A configured key alone does not prove
+that it has credit or that the upstream model works. Last-test timestamps are shown; the
+result is a past observation, not a promise of continuing availability.
+
+On Ask, select the provider checkbox and submit a harmless query. An external-mode badge
+confirms successful classification for that particular request. Error notices distinguish
+rejected keys, insufficient balance, rate limits, model/parameter errors, network failures
+and invalid output. Do not forward raw provider errors or logs, which might contain secrets.
+Use `AI_ENABLED=false` in Railway to switch external calls off immediately after redeploy.
 Only the typed question is sent; warn participants not to type identifying or clinical details.
 Database rows and safety calculations remain server-side. External calls have an eight-second
-timeout and a per-user in-memory limit of twenty requests per minute. Agree this data transfer
+timeout and a per-user in-memory limit of twenty requests per minute. `AI_DAILY_REQUEST_LIMIT`
+defaults to 200 combined queries and connection tests across all users on this running server.
+It accepts integers from 0 to 10000; invalid values use the default and 0 blocks external calls.
+Denied budget/rate-limit queries visibly fall back to local matching rather than failing the
+database answer. Attempted calls, including failed probes, consume this request allowance.
+UTC-day counters reset at midnight **and on restart**; this is not a monetary cap or a
+cross-instance quota. Review provider billing separately and keep the SQLite service at one
+instance. Agree this data transfer
 with the supervisor before asking farm-trial participants to opt in.
+
+See [deepseek-setup.md](deepseek-setup.md) for the beginner-friendly Chinese checklist and
+acceptance questions. Mock tests do not establish live upstream availability.
 
 ## Container deployment
 

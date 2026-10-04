@@ -21,7 +21,8 @@
         <p class="notice warning"><strong>Safety boundary:</strong> The assistant cannot calculate a withholding period, choose a medicine or regimen, approve milk release, or save anything without your confirmation.</p>
         <div class="grid grid-2">
           <section class="card">
-            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle" id="assistant-status">Checking assistant availability…</p></div></div>
+            <div class="card-head"><div><h2 class="card-title">Ask a question</h2><p class="card-subtitle" id="assistant-status" role="status">Checking assistant availability…</p></div></div>
+            <p id="assistant-settings-link" hidden><a href="/ai-settings.html">AI settings and connection test (Owner)</a></p>
             <form id="assistant-form">
               <div class="field">
                 <label for="assistant-question">Question or statement</label>
@@ -39,7 +40,7 @@
               </div>
               <div class="form-actions"><button class="btn" id="assistant-submit" type="submit">Ask</button></div>
             </form>
-            <div id="assistant-notice" style="margin-top:14px" hidden></div>
+            <div id="assistant-notice" role="status" aria-live="polite" style="margin-top:14px" hidden></div>
           </section>
           <aside class="card soft">
             <div class="card-head"><div><h2 class="card-title">How the answer is produced</h2></div></div>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123a2c">
+  <title>AI settings · Calving Log</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="account">
+  <div class="app-shell"><div class="app-main">
+    <header class="page-header">
+      <div><p class="eyebrow">Owner setup</p><h1 class="page-title">AI settings</h1><p class="page-subtitle">Check the optional language connection. Local queries and safety calculations work without it.</p></div>
+    </header>
+    <main class="page-content stack">
+      <p class="notice warning"><strong>Not a milk-release authority.</strong> External AI classifies your wording only. It cannot choose a medicine, calculate a hold or change records. Use demonstration data and agree external processing with your supervisor before a trial.</p>
+      <section class="card">
+        <div class="card-head"><div><h2 class="card-title">Connection status</h2><p class="card-subtitle">Opening this page does not contact the AI provider or spend API credit.</p></div></div>
+        <div id="ai-connection-status" role="status" aria-live="polite" class="loading">Checking server configuration…</div>
+        <div id="ai-usage" style="margin-top:14px"></div>
+        <div id="ai-test-controls" hidden>
+          <label class="activation-row"><input id="ai-test-consent" type="checkbox"><span>I agree to send one fixed, non-clinical help question. This may use a small amount of paid API credit.</span></label>
+          <div class="form-actions"><button class="btn" id="ai-test-button" type="button" disabled>Test AI connection</button><a class="btn secondary" href="/assistant.html">Go to Ask</a></div>
+        </div>
+        <div id="ai-test-notice" role="status" aria-live="polite" style="margin-top:14px" hidden></div>
+      </section>
+      <div class="grid grid-2">
+        <section class="card">
+          <div class="card-head"><div><h2 class="card-title">Set up DeepSeek</h2><p class="card-subtitle">Only the account owner can create the key and decide whether to pay.</p></div></div>
+          <ol class="test-task-list">
+            <li>Open the <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer">DeepSeek API platform</a>, sign in and create an API key. A free chat account is not the same as API credit.</li>
+            <li>Open Railway, choose the <strong>calving-log</strong> service, then <strong>Variables</strong>. Add the three values below. Never paste the secret into chat, GitHub or this application.</li>
+            <li>Apply the variable changes and wait for deployment to succeed. Return here, refresh and select <strong>Test AI connection</strong>.</li>
+            <li>A passed test proves that one request worked. On Ask, explicitly select the provider checkbox; the result badge tells you whether external AI or the local assistant handled that request.</li>
+          </ol>
+          <dl class="medicine-meta"><dt>AI_PROVIDER</dt><dd><code>deepseek</code></dd><dt>AI_MODEL</dt><dd><code>deepseek-flash</code></dd><dt>DEEPSEEK_API_KEY</dt><dd>Your secret key — Railway Variables only</dd></dl>
+        </section>
+        <section class="card soft">
+          <div class="card-head"><div><h2 class="card-title">Control cost and privacy</h2></div></div>
+          <ul class="test-task-list">
+            <li><code>AI_ENABLED=false</code> in Railway turns external AI off; local Ask still works. Use <code>true</code> to enable it again.</li>
+            <li><code>AI_DAILY_REQUEST_LIMIT=200</code> limits requests across all users on this running server. Set <code>0</code> to stop paid requests. Failed requests and connection tests count too.</li>
+            <li>Daily counters use UTC and reset on a server restart. This is a request safeguard, <strong>not a guaranteed monetary spending cap</strong>. Check billing in your provider account.</li>
+            <li>Questions are sent only after opt-in. Database rows, medicine labels and passwords are not uploaded. Never type personal, farm-identifying or real clinical details.</li>
+            <li>If a key is wrong, credit runs out, a limit is reached, or the provider fails, Ask visibly falls back to local matching. Stored records and safety results stay unchanged.</li>
+          </ul>
+          <p><a href="/account.html">Back to Account</a> · <a href="https://api-docs.deepseek.com/quick_start/pricing/" target="_blank" rel="noopener noreferrer">Official model pricing</a></p>
+        </section>
+      </div>
+    </main>
+  </div></div>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/ai-settings.js"></script>
+</body>
+</html>

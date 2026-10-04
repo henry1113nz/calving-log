@@ -53,22 +53,62 @@ function localIntent(question) {
 const INTENTS = ['vat_exclusions_today', 'cow_status', 'draft_event', 'medicine_info', 'schedule_info', 'workflow_help', 'unsupported'];
 
 function assistantConfig(env = process.env) {
-  const provider = env.AI_PROVIDER || 'deepseek';
-  const key = provider === 'deepseek' ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY;
+  const provider = String(env.AI_PROVIDER || 'deepseek').trim().toLowerCase();
+  const key = String((provider === 'deepseek' ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY) || '').trim();
+  const model = String(env.AI_MODEL || (provider === 'deepseek' ? 'deepseek-flash' : 'gpt-4.1-mini')).trim();
+  const enabled = !['false', '0', 'off'].includes(String(env.AI_ENABLED || 'true').trim().toLowerCase());
+  let state = 'ready';
+  if (!enabled) state = 'disabled';
+  else if (!['deepseek', 'openai'].includes(provider)) state = 'invalid_provider';
+  else if (!model || model.length > 100 || /[\s\u0000-\u001f\u007f]/.test(model)) state = 'invalid_model';
+  else if (!key) state = 'missing_key';
+  else if (/^(<.*>|replace[-_ ].*|your[-_ ].*|sk-your.*|changeme|placeholder|undefined|null)$/i.test(key)
+    || /[\s\u0000-\u001f\u007f]/.test(key)) state = 'invalid_key';
   return {
     provider,
-    model: env.AI_MODEL || (provider === 'deepseek' ? 'deepseek-flash' : 'gpt-4.1-mini'),
-    configured: ['deepseek', 'openai'].includes(provider) && Boolean(key),
+    model,
+    configured: state === 'ready',
+    state,
     key,
     endpoint: provider === 'deepseek' ? 'https://api.deepseek.com/chat/completions' : 'https://api.openai.com/v1/chat/completions'
   };
+}
+
+const AI_NOTICES = {
+  disabled: 'External AI is switched off by the owner.',
+  invalid_provider: 'The configured AI provider is not supported. Choose deepseek or openai in Railway Variables.',
+  invalid_model: 'The AI model configuration is invalid. Check AI_MODEL in Railway Variables.',
+  missing_key: 'External AI is not configured. Add the selected provider API key in Railway Variables.',
+  invalid_key: 'The API key appears to be a placeholder or has invalid whitespace. Replace it privately in Railway Variables.',
+  authentication_failed: 'The AI provider rejected the API key. Check or replace it privately in Railway Variables.',
+  insufficient_balance: 'The AI account has insufficient balance. Check the provider account; payment is your choice.',
+  provider_rate_limit: 'The AI provider rate limit was reached. Wait before trying again.',
+  invalid_request: 'The AI provider rejected the model or request parameters. Check the configured model.',
+  access_denied: 'The AI provider denied access. Check the account permissions and service availability.',
+  provider_unavailable: 'The AI provider is temporarily unavailable.',
+  timeout: 'The AI connection timed out after eight seconds.',
+  network_error: 'The AI provider could not be reached.',
+  invalid_response: 'The AI response failed the allowed-intent safety check.',
+  unexpected_intent: 'The connection replied, but did not classify the fixed test question correctly.',
+  daily_limit: 'The application daily external-AI request limit was reached.',
+  user_rate_limit: 'Please wait a minute before sending more external-AI requests.'
+};
+
+function aiNotice(code) {
+  return AI_NOTICES[code] || AI_NOTICES.provider_unavailable;
+}
+
+function requestError(code) {
+  const error = new Error(code);
+  error.aiCode = code;
+  return error;
 }
 
 async function classifyIntent(question, { useAI = false, env = process.env, fetchImpl = fetch } = {}) {
   const fallback = { intent: localIntent(question), mode: 'local', notice: null };
   const config = assistantConfig(env);
   if (!useAI) return fallback;
-  if (!config.configured) return { ...fallback, notice: 'External AI is not configured. The local assistant answered this request.' };
+  if (!config.configured) return { ...fallback, error_code: config.state, notice: `${aiNotice(config.state)} The local assistant answered this request.` };
   try {
     const response = await fetchImpl(config.endpoint, {
       method: 'POST',
@@ -85,18 +125,74 @@ async function classifyIntent(question, { useAI = false, env = process.env, fetc
         ...(config.provider === 'deepseek' ? { thinking: { type: 'disabled' } } : {})
       })
     });
-    if (!response.ok) throw new Error('provider_unavailable');
+    if (!response.ok) {
+      const code = ({ 400: 'invalid_request', 401: 'authentication_failed', 402: 'insufficient_balance',
+        403: 'access_denied', 404: 'invalid_request', 422: 'invalid_request', 429: 'provider_rate_limit' })[response.status];
+      // Never forward or log the raw upstream response: it can contain secrets or user text.
+      throw requestError(code || 'provider_unavailable');
+    }
     const data = await response.json();
     const choice = data.choices?.[0];
-    if (choice?.finish_reason !== 'stop') throw new Error('incomplete_response');
+    if (choice?.finish_reason !== 'stop' || typeof choice.message?.content !== 'string'
+      || choice.message.content.length > 2048) throw requestError('invalid_response');
     const parsed = JSON.parse(choice.message.content);
-    if (!parsed || Object.keys(parsed).length !== 1 || !INTENTS.includes(parsed.intent)) throw new Error('invalid_intent');
+    if (!parsed || Array.isArray(parsed) || Object.keys(parsed).length !== 1 || !INTENTS.includes(parsed.intent)) throw requestError('invalid_response');
     // A model cannot turn a question into a write draft. Entity/date resolution remains local.
     const intent = parsed.intent === 'draft_event' && fallback.intent !== 'draft_event' ? 'unsupported' : parsed.intent;
     return { intent, mode: 'external', provider: config.provider, notice: null };
-  } catch {
-    return { ...fallback, notice: 'External AI was unavailable or returned an invalid result. The local assistant answered; stored safety results are unchanged.' };
+  } catch (error) {
+    const code = error?.aiCode || (['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout'
+      : error instanceof SyntaxError || error instanceof TypeError && !/fetch|network/i.test(error.message)
+        ? 'invalid_response' : 'network_error');
+    return { ...fallback, error_code: code, notice: `${aiNotice(code)} The local assistant answered; stored safety results are unchanged.` };
   }
 }
 
-module.exports = { classifyIntent, localIntent, assistantConfig, INTENTS };
+async function testAssistantConnection({ env = process.env, fetchImpl = fetch, now = Date.now } = {}) {
+  const config = assistantConfig(env);
+  const start = now();
+  const base = { provider: config.provider, model: config.model, checked_at: new Date(start).toISOString() };
+  if (!config.configured) return { ...base, state: 'not_configured', error_code: config.state, message: aiNotice(config.state) };
+  // A fixed help question costs one short request and discloses no farm data.
+  const result = await classifyIntent('How do I use the CalvingLog pages?', { useAI: true, env, fetchImpl });
+  const latency_ms = Math.max(0, now() - start);
+  if (result.mode === 'external' && result.intent === 'workflow_help') {
+    return { ...base, state: 'connected', latency_ms, message: 'Connection test passed. The provider returned a valid help intent. No farm records were sent or changed.' };
+  }
+  const error_code = result.error_code || 'unexpected_intent';
+  return { ...base, state: 'failed', latency_ms, error_code, message: aiNotice(error_code) };
+}
+
+function createAIRequestLimiter({ env = process.env, now = Date.now } = {}) {
+  const requestedLimit = String(env.AI_DAILY_REQUEST_LIMIT || '200').trim();
+  const dailyLimit = /^\d+$/.test(requestedLimit) && Number(requestedLimit) <= 10000 ? Number(requestedLimit) : 200;
+  const users = new Map();
+  let day = '';
+  let used = 0;
+  function resetDay(timestamp) {
+    const nextDay = new Date(timestamp).toISOString().slice(0, 10);
+    if (nextDay !== day) { day = nextDay; used = 0; users.clear(); }
+  }
+  return {
+    status() {
+      resetDay(now());
+      return { per_user_per_minute: 20, daily_requests: dailyLimit, used_today: used,
+        remaining_today: Math.max(0, dailyLimit - used), day_utc: day,
+        scope: 'One running server; counters reset on restart. This is not a monetary spending cap.' };
+    },
+    take(userId) {
+      const timestamp = now();
+      resetDay(timestamp);
+      for (const [id, item] of users) if (item.until <= timestamp) users.delete(id);
+      const recent = users.get(userId) || { count: 0, until: timestamp + 60000 };
+      if (recent.count >= 20) return { allowed: false, code: 'user_rate_limit' };
+      if (used >= dailyLimit) return { allowed: false, code: 'daily_limit' };
+      recent.count += 1;
+      users.set(userId, recent);
+      used += 1;
+      return { allowed: true };
+    }
+  };
+}
+
+module.exports = { classifyIntent, localIntent, assistantConfig, INTENTS, aiNotice, testAssistantConnection, createAIRequestLimiter };

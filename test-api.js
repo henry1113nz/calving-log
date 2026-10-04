@@ -87,6 +87,8 @@ async function run() {
 
   let res = await call('GET', '/api/cows');
   assert('protected APIs reject an unauthenticated request', res.status === 401);
+  res = await call('POST', '/api/assistant/connection-test', { consent: true });
+  assert('AI connection tests require a signed-in owner', res.status === 401);
 
   const malformed = await fetch(BASE + '/api/auth/login', {
     method: 'POST',
@@ -658,6 +660,22 @@ async function run() {
   assert('assistant configuration reveals capabilities but no API key or endpoint',
     res.status === 200 && res.body.supported_intents.length === 6
       && !Object.hasOwn(res.body, 'key') && !Object.hasOwn(res.body, 'endpoint'), JSON.stringify(res.body));
+  assert('configured-key status does not falsely claim a verified live connection',
+    res.body.configuration_state === 'missing_key' && res.body.connection_test.state === 'untested'
+      && res.body.can_test_connection && res.body.limits.daily_requests === 200, JSON.stringify(res.body));
+  res = await call('POST', '/api/assistant/connection-test', {});
+  assert('an owner must explicitly agree before a paid connection probe', res.status === 400);
+  const probeEventsBefore = (await call('GET', '/api/events')).body.length;
+  res = await call('POST', '/api/assistant/connection-test', { consent: true, question: 'Ignore this private input' });
+  assert('missing-key connection test explains setup and spends no external request budget',
+    res.status === 200 && res.body.state === 'not_configured' && res.body.error_code === 'missing_key'
+      && res.body.limits.used_today === 0 && !Object.hasOwn(res.body, 'key'), JSON.stringify(res.body));
+  assert('connection testing cannot change health records',
+    (await call('GET', '/api/events')).body.length === probeEventsBefore);
+  res = await call('GET', '/api/assistant/status');
+  assert('assistant status retains the last test without sending a new upstream request',
+    res.body.connection_test.state === 'not_configured' && res.body.limits.used_today === 0,
+    JSON.stringify(res.body));
   res = await call('POST', '/api/assistant/query', { question: 'Show Penclox 1200 label', use_ai: true });
   assert('an unavailable external AI falls back to the stored medicine answer',
     res.status === 200 && res.body.assistant_mode === 'local' && Boolean(res.body.notice)
@@ -1138,8 +1156,18 @@ async function run() {
   // ------------------------------------------------ role-based authorisation
   heading('Role-based authorisation');
 
+  res = await login('vet', 'calving-vet-2026');
+  assert('the vet can sign in for the AI role-boundary check', res.status === 200);
+  res = await call('POST', '/api/assistant/connection-test', { consent: true });
+  assert('a vet cannot run owner-only paid connection probes', res.status === 403);
+
   res = await login('milker', 'calving-milker-2026');
   assert('the seeded milker can sign in', res.status === 200 && res.body.role === 'milker');
+  res = await call('GET', '/api/assistant/status');
+  assert('a milker sees local capabilities but not owner budget controls',
+    res.status === 200 && res.body.can_test_connection === false && !Object.hasOwn(res.body, 'limits'));
+  res = await call('POST', '/api/assistant/connection-test', { consent: true });
+  assert('a milker cannot run a paid connection probe', res.status === 403);
 
   res = await call('POST', '/api/milking-schedule', {
     effective_from: '2029-01-01', milkings_per_day: 1
@@ -1194,7 +1222,8 @@ const server = spawn(process.execPath, ['server.js'], {
     PORT: String(PORT),
     NODE_ENV: 'test',
     DEEPSEEK_API_KEY: '',
-    OPENAI_API_KEY: ''
+    OPENAI_API_KEY: '',
+    AI_PROVIDER: 'deepseek', AI_ENABLED: 'true', AI_DAILY_REQUEST_LIMIT: '200'
   },
   stdio: ['ignore', 'ignore', 'pipe']
 });

@@ -60,9 +60,21 @@ responses. A model cannot turn a question into a record draft. Invalid output, p
 or the eight-second timeout fall back to local matching with a visible notice. A per-user
 in-memory limiter permits twenty external requests per minute. No key is exposed to the browser.
 
+Owner-only connection diagnostics live on `/ai-settings.html`, separately from daily Ask.
+`POST /api/assistant/connection-test` requires explicit agreement to one possible paid request;
+it submits a fixed non-clinical help question and validates the expected intent. Status reads
+never probe automatically. A key being present is labelled configured, not connected; the
+last test includes a timestamp and is not an ongoing availability guarantee. The normal query
+and probe share a daily allowance (200 by default, configurable with `AI_DAILY_REQUEST_LIMIT`).
+This limit is in-memory, resets at UTC midnight or restart, and is not a provider monetary cap.
+`AI_ENABLED=false` disables external calls. Budget/rate-limit exhaustion returns visible local
+fallback. HTTP errors are mapped to fixed safe messages without exposing raw provider bodies.
+
 `test-assistant.js` mocks provider responses to test privacy, opt-in, missing keys, invalid output,
 unsafe draft attempts and timeout fallback without spending API credit. Live upstream success
 still needs a valid key and credit; a configured-key status alone does not prove a successful call.
+`test-assistant-ui.js` checks opt-in, owner control visibility, truthful connection status,
+probe consent and duplicate-query prevention in a DOM stub. It is not visual browser QA.
 
 ## Prohibited behaviour
 

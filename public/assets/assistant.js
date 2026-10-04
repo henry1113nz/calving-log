@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const questionField = document.getElementById('assistant-question');
   const result = document.getElementById('assistant-result');
   let pendingDraft = null;
+  let asking = false;
 
   function modeBadge(payload) {
     return badge(payload.assistant_mode === 'external' ? `${payload.provider} AI understood the request` : 'Local assistant', 'info');
@@ -68,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderCowStatus(payload) {
     if (!payload.resolved) {
-      result.innerHTML = `<div class="notice warning"><strong>${escapeHtml(payload.message)}</strong></div>`;
+      result.innerHTML = `<div class="notice warning"><strong>${escapeHtml(payload.message)}</strong><br>${modeBadge(payload)}</div>`;
       return;
     }
 
@@ -161,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pendingDraft = null;
 
     if (!payload.supported) {
-      result.innerHTML = emptyState('Question not supported yet', payload.message);
+      result.innerHTML = `${modeBadge(payload)} ${emptyState('Question not supported yet', payload.message)}`;
       return;
     }
     if (payload.intent === 'cow_status') return renderCowStatus(payload);
@@ -182,6 +183,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function ask(question) {
+    if (asking) return;
+    asking = true;
+    pendingDraft = null;
+    result.className = 'loading';
+    result.textContent = 'Checking your question…';
     const button = document.getElementById('assistant-submit');
     setBusy(button, true, 'Checking…');
     showNotice('#assistant-notice', '');
@@ -204,8 +210,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     } catch (error) {
+      result.className = '';
+      result.innerHTML = emptyState('No answer loaded', 'Nothing was saved. Check the message below and try again.');
       showNotice('#assistant-notice', error.message, 'error');
     } finally {
+      asking = false;
       setBusy(button, false);
     }
   }
@@ -226,7 +235,13 @@ document.addEventListener('DOMContentLoaded', () => {
   requestJson('/api/assistant/status').then(status => {
     const checkbox = document.getElementById('use-ai');
     checkbox.disabled = !status.external_ai_available;
-    document.getElementById('assistant-status').textContent = status.external_ai_available ? `External AI available: ${status.provider}. Select it below when you want to use it.` : 'Local assistant is ready. External AI needs a server API key.';
+    const last = status.connection_test;
+    document.getElementById('assistant-status').textContent = !status.external_ai_available
+      ? `Local assistant is ready. ${status.configuration_message}`
+      : last?.state === 'connected'
+        ? `${status.provider} is configured; the last connection test passed. Each answer shows whether AI actually worked.`
+        : `${status.provider} key is configured, but ${last?.state === 'failed' ? 'the last connection test failed' : 'the connection has not been tested'}. Local answers remain available.`;
+    document.getElementById('assistant-settings-link').hidden = !status.can_test_connection;
     document.getElementById('ai-option-label').textContent = status.external_ai_available ? `Use ${status.provider} to understand this question` : 'External AI is not configured; local queries still work';
   }).catch(error => { document.getElementById('assistant-status').textContent = error.message; });
 });

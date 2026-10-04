@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const peopleCard = document.getElementById('people-card');
   const peopleList = document.getElementById('people-list');
   if (!signedInUser || signedInUser.role !== 'owner') return;
+  document.getElementById('account-ai-card').hidden = false;
   peopleCard.hidden = false;
 
   async function loadPeople() {

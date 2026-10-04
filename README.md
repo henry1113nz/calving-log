@@ -88,9 +88,11 @@ reference-data release gate: an incomplete active ACVM reference makes the comma
 | `verify-db.js` | database constraint verification |
 | `test-api.js` | API endpoint tests |
 | `test-assistant.js` | mocked provider, privacy, fallback and schedule-transition regression tests |
+| `test-assistant-ui.js` | DOM-stub tests of configuration status, paid-probe consent and query controls; not visual browser QA |
 | `test-reference-data.js` | repeat-import, conflict rollback and clinical-history preservation tests |
 | `test-static-pages.js` | frontend syntax, element ID and local asset/link checks (not browser QA) |
 | `assistant.js` | local and optional external intent classification; never performs the safety calculation or supplies entities |
+| `public/ai-settings.html` | separate owner connection-test page, setup instructions and request-limit status |
 | `public/*.html` | login, dashboard, events, reviews, herd, individual cow history, dry-off, medicines, medicine editor, milking plan, assistant, feedback and account pages |
 | `public/assets/` | shared responsive styles and page-specific browser logic |
 | `docs/schema.md` | database design and rationale |

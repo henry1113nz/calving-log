@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('./db');
 const { addDays, calculateWithdrawal, toDays } = require('./withdrawalCalculator');
 const { recommendDryOffTreatment } = require('./dryOffAdvisor');
-const { classifyIntent, assistantConfig } = require('./assistant');
+const { classifyIntent, assistantConfig, aiNotice, testAssistantConnection, createAIRequestLimiter } = require('./assistant');
 const {
   clearCookieHeader, cookieHeader, createSession, parseCookies, passwordFields,
   requireAuth, requireRole, tokenHash, verifyPassword
@@ -1573,9 +1573,29 @@ function assistantVatAnswer() {
   };
 }
 
+const assistantLimiter = createAIRequestLimiter();
+let lastConnectionTest = null;
 app.get('/api/assistant/status', (req, res) => {
-  const { configured, provider, model } = assistantConfig();
-  res.json({ external_ai_available: configured, provider: configured ? provider : null, model: configured ? model : null, supported_intents: ['vat_exclusions_today', 'cow_status', 'draft_event', 'medicine_info', 'schedule_info', 'workflow_help'], privacy: 'Only the submitted question is sent to the provider when you opt in. Farm records, passwords and labels are not sent.' });
+  const { configured, provider, model, state } = assistantConfig();
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ external_ai_available: configured, configuration_state: state,
+    configuration_message: configured ? 'Key configured; a successful connection has not been assumed.' : aiNotice(state),
+    provider, model, can_test_connection: req.user.role === 'owner',
+    connection_test: lastConnectionTest || { state: 'untested', message: 'No connection test has been run since this server started.' },
+    ...(req.user.role === 'owner' ? { limits: assistantLimiter.status() } : {}),
+    supported_intents: ['vat_exclusions_today', 'cow_status', 'draft_event', 'medicine_info', 'schedule_info', 'workflow_help'],
+    privacy: 'Only the submitted question is sent to the provider when you opt in. Farm records, passwords and labels are not sent.' });
+});
+
+app.post('/api/assistant/connection-test', requireRole('owner'), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.body?.consent !== true) return res.status(400).json({ error: 'Confirm that this fixed connection test may use one short paid API request.' });
+  if (assistantConfig().configured) {
+    const budget = assistantLimiter.take(req.user.id);
+    if (!budget.allowed) return res.json({ state: 'blocked', error_code: budget.code, message: aiNotice(budget.code), limits: assistantLimiter.status() });
+  }
+  lastConnectionTest = await testAssistantConnection();
+  res.json({ ...lastConnectionTest, limits: assistantLimiter.status() });
 });
 
 function assistantMedicineAnswer(question) {
@@ -1597,7 +1617,6 @@ function assistantWorkflowAnswer(role) {
   ] };
 }
 
-const assistantRequests = new Map();
 app.post('/api/assistant/query', async (req, res) => {
   const question = String(req.body?.question || '').trim();
   if (!question) return res.status(400).json({ error: 'Enter a question' });
@@ -1605,21 +1624,19 @@ app.post('/api/assistant/query', async (req, res) => {
     return res.status(400).json({ error: 'Question must be 500 characters or fewer' });
   }
 
-  const useAI = req.body?.use_ai === true;
+  let useAI = req.body?.use_ai === true;
+  let budgetCode = null;
   if (useAI && assistantConfig().configured) {
-    const now = Date.now();
-    for (const [id, item] of assistantRequests) if (item.until <= now) assistantRequests.delete(id);
-    const recent = assistantRequests.get(req.user.id) || { count: 0, until: now + 60000 };
-    if (recent.count >= 20) return res.status(429).json({ error: 'Please wait a minute before sending more AI requests.' });
-    recent.count += 1;
-    assistantRequests.set(req.user.id, recent);
+    const budget = assistantLimiter.take(req.user.id);
+    if (!budget.allowed) { useAI = false; budgetCode = budget.code; }
   }
   const classification = await classifyIntent(question, { useAI });
   const envelope = {
     intent: classification.intent,
     assistant_mode: classification.mode,
     provider: classification.provider || null,
-    notice: classification.notice
+    notice: budgetCode ? `${aiNotice(budgetCode)} The local assistant answered; stored safety results are unchanged.` : classification.notice,
+    error_code: budgetCode || classification.error_code || null
   };
 
   if (classification.intent === 'vat_exclusions_today') {
@@ -1642,8 +1659,8 @@ app.post('/api/assistant/query', async (req, res) => {
   return res.json({
     ...envelope,
     supported: false,
-    message: "This prototype answers today's vat-exclusion question, explains one cow's recorded hold, " +
-      'and prepares a calving record for a person to confirm. It does not diagnose, advise on ' +
+    message: "This prototype lists today's milk holds, explains a cow's stored hold, shows medicine references and milking plans, " +
+      'helps you find pages, and prepares a calving draft for confirmation. It does not diagnose, advise on ' +
       'treatment or release milk.'
   });
 });
